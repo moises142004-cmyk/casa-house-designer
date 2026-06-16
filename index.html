@@ -1281,44 +1281,76 @@ function shade(hex,amt){ hex=toHex(hex); const n=parseInt(hex.slice(1),16);
 
 /* ---------- TEMPLATES (pure data) ---------- */
 function buildTemplateData(kind){
-  const data={levels:[newLevel("Floor 1")],wallH:2.7};
+  const data={levels:[newLevel("Floor 1")],wallH:2.7,ceiling:false,roof:"none",roofColor:"#8a9099",roofPitch:1.4};
   const lv=data.levels[0]; const idc={n:1};
+  const WOOD="#a9743f", TILE="#d8d2c4", CARP="#8a7f96", LIVW="#c2a373", MARB="#e9e7e2";
   const addW=(o,x,y)=>{ const k=wkey(o,x,y); if(!lv.walls[k])lv.walls[k]={type:"wall",color:WALL_COLORS[0]}; };
   const setW=(o,x,y,t)=>{ const k=wkey(o,x,y); if(!lv.walls[k])lv.walls[k]={type:"wall",color:WALL_COLORS[0]}; lv.walls[k].type=t; };
-  const rect=(x0,y0,x1,y1,col)=>{ for(let x=x0;x<x1;x++){addW("h",x,y0);addW("h",x,y1);} for(let y=y0;y<y1;y++){addW("v",x0,y);addW("v",x1,y);}
-    for(let x=x0;x<x1;x++)for(let y=y0;y<y1;y++)lv.floors[fkey(x,y)]={color:col||FLOOR_COLORS[0]}; };
+  const fill=(x0,y0,x1,y1,color,mat,ceil)=>{ for(let x=x0;x<x1;x++)for(let y=y0;y<y1;y++)lv.floors[fkey(x,y)]={color:color,ceil:ceil!==false,mat:mat||"solid"}; };
+  const room=(x0,y0,x1,y1,color,mat)=>{ for(let x=x0;x<x1;x++){addW("h",x,y0);addW("h",x,y1);} for(let y=y0;y<y1;y++){addW("v",x0,y);addW("v",x1,y);} fill(x0,y0,x1,y1,color,mat,true); };
+  const vwall=(x,y0,y1)=>{ for(let y=y0;y<y1;y++)addW("v",x,y); };
+  const hwall=(y,x0,x1)=>{ for(let x=x0;x<x1;x++)addW("h",x,y); };
   const addF=(type,x,y,rot)=>lv.furniture.push({id:idc.n++,type,x,y,rot:rot||0,color:FURNITURE[type].color});
+
   if(kind==="studio"){
-    rect(2,2,16,12,FLOOR_COLORS[2]);
-    setW("h",8,12,"door"); setW("h",4,2,"window"); setW("h",12,2,"window"); setW("v",16,6,"window");
-    addF("bed",3,3,0); addF("sofa",10,8,2); addF("counter",3,9,0); addF("fridge",7,9,0); addF("table",11,3,0); addF("toilet",14,9,0);
+    room(0,0,16,14,WOOD,"wood");
+    room(10,0,16,5,TILE,"tile");                 // bathroom
+    setW("v",10,2,"door");
+    setW("h",7,14,"door");                        // entry
+    setW("h",3,0,"window"); setW("h",13,0,"window"); setW("v",0,7,"window"); setW("v",16,9,"window"); setW("h",4,14,"window");
+    addF("counter",1,1,0); addF("stove",5,1,0); addF("sink",7,1,0); addF("fridge",1,3,0);   // kitchenette
+    addF("bed",1,8,0);                              // sleeping
+    addF("sofa",6,11,0); addF("tv",11,12,0); addF("table",10,8,0); addF("plant",14,12,0); addF("rug",6,9,0);
+    addF("toilet",10,3,0); addF("bath",12,1,0); addF("sink",14,3,0);
   } else if(kind==="onebed"){
-    rect(2,2,20,14,FLOOR_COLORS[0]);
-    for(let y=2;y<8;y++)addW("v",11,y); setW("v",11,4,"door");
-    for(let x=11;x<20;x++)addW("h",x,8); setW("h",14,8,"door");
-    setW("h",6,14,"door"); setW("h",4,2,"window"); setW("h",15,2,"window"); setW("v",2,7,"window"); setW("v",20,5,"window");
-    addF("bed",3,3,0); addF("desk",7,3,0); addF("sofa",13,10,0); addF("tv",13,13,2); addF("table",17,10,0);
-    addF("counter",12,3,0); addF("stove",16,3,0); addF("fridge",18,3,0);
+    room(0,0,22,16,LIVW,"wood");
+    room(0,0,10,9,CARP,"carpet");                 // bedroom
+    setW("v",10,4,"door");
+    room(0,9,8,16,TILE,"tile");                   // bathroom
+    setW("h",3,9,"door");
+    room(10,0,22,6,TILE,"tile");                  // kitchen
+    setW("h",15,6,"door");
+    setW("h",14,16,"door");                        // entry
+    setW("h",3,0,"window"); setW("h",16,0,"window"); setW("v",0,3,"window"); setW("v",22,4,"window"); setW("v",22,11,"window"); setW("h",18,16,"window"); setW("v",0,12,"window");
+    addF("bed",1,1,0); addF("desk",6,1,0); addF("plant",8,7,0);
+    addF("toilet",1,10,0); addF("bath",1,12,0); addF("sink",6,10,0);
+    addF("counter",11,1,0); addF("stove",15,1,0); addF("fridge",19,1,0); addF("sink",11,3,0);
+    addF("sofa",12,12,0); addF("tv",12,8,0); addF("table",16,10,0); addF("plant",20,13,0); addF("rug",13,10,0);
   } else if(kind==="twobed"){
-    rect(2,2,22,16,FLOOR_COLORS[6]);
-    for(let x=2;x<12;x++)addW("h",x,9); setW("h",5,9,"door");
-    for(let y=2;y<9;y++)addW("v",12,y); setW("v",12,5,"door");
-    for(let y=9;y<16;y++)addW("v",14,y); setW("v",14,12,"door");
-    setW("h",16,16,"door"); setW("h",4,2,"window"); setW("h",8,2,"window"); setW("h",17,2,"window"); setW("v",22,6,"window"); setW("v",2,5,"window"); setW("v",2,12,"window");
-    addF("bed",3,3,0); addF("desk",9,3,0); addF("bed",3,11,0); addF("plant",10,14,0);
-    addF("sofa",16,4,0); addF("tv",20,4,0); addF("table",16,7,0);
-    addF("counter",15,10,0); addF("stove",19,10,0); addF("fridge",20,13,0); addF("sink",15,13,0);
+    room(0,0,26,18,LIVW,"wood");
+    room(0,0,11,8,CARP,"carpet"); setW("v",11,3,"door");      // bedroom 1
+    room(0,8,11,18,CARP,"carpet"); setW("v",11,13,"door");    // bedroom 2
+    room(11,0,17,6,TILE,"tile"); setW("h",13,6,"door");       // bathroom
+    room(17,0,26,8,TILE,"tile"); setW("v",17,4,"door");       // kitchen
+    setW("h",18,18,"door");                                    // entry
+    setW("h",3,0,"window"); setW("h",7,0,"window"); setW("h",21,0,"window"); setW("v",0,3,"window"); setW("v",0,13,"window"); setW("v",26,5,"window"); setW("v",26,13,"window"); setW("h",13,18,"window"); setW("h",23,18,"window");
+    addF("bed",1,1,0); addF("desk",7,1,0); addF("plant",9,6,0);
+    addF("bed",1,9,0); addF("rug",6,12,0); addF("plant",9,15,0);
+    addF("toilet",11,1,0); addF("bath",13,1,0); addF("sink",11,4,0);
+    addF("counter",18,1,0); addF("stove",22,1,0); addF("fridge",24,1,0); addF("sink",18,5,0);
+    addF("sofa",13,12,0); addF("tv",13,16,2); addF("table",19,10,0); addF("chair",17,10,0); addF("chair",22,10,0); addF("plant",24,15,0); addF("rug",14,11,0);
   } else if(kind==="villa"){
-    rect(2,2,18,12,FLOOR_COLORS[9]); rect(12,12,26,22,FLOOR_COLORS[9]);
-    for(let y=2;y<12;y++)addW("v",9,y); setW("v",9,6,"door");
-    for(let x=12;x<26;x++)addW("h",x,17); setW("h",18,17,"door");
-    setW("h",4,2,"window"); setW("h",13,2,"window"); setW("v",2,6,"window"); setW("v",26,16,"window"); setW("h",20,22,"door"); setW("v",18,9,"door");
-    addF("bed",3,3,0); addF("bath",6,9,0); addF("sofa",12,3,0); addF("tv",16,3,2); addF("table",13,7,0);
-    addF("counter",13,13,0); addF("stove",17,13,0); addF("fridge",19,13,0); addF("table",20,18,0); addF("plant",24,19,0); addF("bed",13,18,0);
+    fill(0,0,28,20,"#5b8f4e","grass",false);      // garden lot
+    fill(2,16,9,20,"#9aa0a6","paving",false);     // driveway
+    fill(19,2,26,9,"#3f86c7","water",false);      // pool
+    room(2,2,15,12,WOOD,"wood");                  // main wing
+    vwall(9,2,12); setW("v",9,6,"door");          // bedroom | living
+    setW("h",5,12,"door");                        // front door (to garden)
+    setW("h",4,2,"window"); setW("h",12,2,"window"); setW("v",2,5,"window"); setW("v",2,9,"window"); setW("v",15,4,"window");
+    room(11,12,25,19,WOOD,"wood");                // perpendicular wing -> L
+    vwall(18,12,19); setW("v",18,15,"door");      // kitchen | bedroom2
+    setW("h",13,12,"door");                        // connect wings
+    setW("v",25,15,"window"); setW("h",15,19,"window"); setW("h",21,19,"window"); setW("v",11,16,"window");
+    addF("bed",3,3,0); addF("bath",6,9,0); addF("sink",3,9,0);                 // main bedroom+ensuite
+    addF("sofa",10,3,0); addF("tv",13,3,2); addF("table",10,8,0); addF("plant",13,9,0); addF("rug",10,5,0);  // living
+    addF("counter",12,13,0); addF("stove",16,13,0); addF("fridge",12,17,0); addF("sink",16,17,0);            // kitchen
+    addF("bed",20,13,0); addF("plant",23,17,0);                                 // bedroom 2
+    addF("umbrella",25,3,0); addF("tree",26,12,0); addF("tree",4,13,0); addF("bush",16,3,0); addF("fountain",10,15,0);
+    addF("car",3,12,0); addF("lamp",1,15,0); addF("bush",24,11,0);
+    data.roofColor="#7a3f2e"; data.roofPitch=1.6;
   }
   return data;
 }
-
 /* ---------- BOOT ---------- */
 function boot(){
   init3D(); loadProjects(); buildTplBar();
