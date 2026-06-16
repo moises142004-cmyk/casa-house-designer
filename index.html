@@ -374,8 +374,8 @@ function renderProps(){
         html+='<button class="propbtn danger" id="delBtn">Delete '+(n>1?"("+n+")":"segment")+'</button><div class="muted" style="margin-top:8px">Pick a swatch to recolor.</div>';
       } else {
         html+='<div style="margin:12px 0 6px"><b>'+(n>1?n+" floor tiles":"Floor tile")+'</b></div>';
-        if(n===1){ const fl=lv.floors[sel.items[0]]; if(fl) html+='<label class="row" style="cursor:pointer"><input type="checkbox" id="ceilChk"'+(fl.ceil!==false?" checked":"")+'> Ceiling above this tile</label>'; }
-        html+='<button class="propbtn danger" id="delBtn">Delete '+(n>1?"("+n+")":"tile")+'</button><div class="muted" style="margin-top:8px">Pick a swatch to recolor.</div>';
+        html+='<div class="muted" style="margin-bottom:4px">Ceiling above '+(n>1?"these "+n+" tiles":"this tile")+':</div><div class="btnrow"><button class="propbtn" id="ceilOn">Ceiling on</button><button class="propbtn" id="ceilOff">Ceiling off</button></div>';
+        html+='<button class="propbtn danger" id="delBtn" style="margin-top:6px">Delete '+(n>1?"("+n+")":"tile")+'</button><div class="muted" style="margin-top:8px">Pick a swatch to recolor.</div>';
       }
     } else {
       html+='<div class="muted" style="margin-top:10px">Click an item to select &amp; recolor, or drag a box to grab many of the chosen type.</div>';
@@ -385,7 +385,8 @@ function renderProps(){
     const rb=document.getElementById("rotBtn"); if(rb)rb.onclick=()=>{ pushUndo(); sel.items.forEach(id=>{const f=furnAt(id);if(f)f.rot=(f.rot+1)%4;}); draw();build3D();save(); };
     const db=document.getElementById("delBtn"); if(db)db.onclick=()=>{ pushUndo(); deleteSelected(); };
     propBody.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{ pushUndo(); const w=L().walls[sel.items[0]]; if(w)w.type=b.dataset.t; draw();build3D();save();renderProps(); });
-    const cc=document.getElementById("ceilChk"); if(cc)cc.onchange=()=>{ pushUndo(); const fl=L().floors[sel.items[0]]; if(fl)fl.ceil=cc.checked; build3D(); save(); };
+    const con=document.getElementById("ceilOn"); if(con)con.onclick=()=>{ pushUndo(); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl)fl.ceil=true;}); build3D(); save(); };
+    const cof=document.getElementById("ceilOff"); if(cof)cof.onclick=()=>{ pushUndo(); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl)fl.ceil=false;}); build3D(); save(); };
     return;
   }
   propBody.innerHTML='<div class="muted">Switch to the <b>Select</b> tool to recolor, retype or delete walls, floors and furniture \u2014 one at a time, or many at once by dragging a box.</div>';
