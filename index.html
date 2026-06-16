@@ -170,10 +170,10 @@
         <div class="fgrid" id="furnGrid"></div>
       </div>
       <div class="sect" id="floorSect" style="display:none">
-        <h3>Ground type</h3>
-        <div class="btnrow"><button class="propbtn" id="gGrass" style="margin-top:0">Grass</button><button class="propbtn" id="gStone" style="margin-top:0">Paving</button><button class="propbtn" id="gWater" style="margin-top:0">Water</button></div>
+        <h3>Floor material</h3>
+        <div class="fgrid" id="floorMatGrid"></div>
         <label class="row" style="cursor:pointer;margin-top:8px"><input type="checkbox" id="floorOutdoor"> Outdoor tile (no ceiling)</label>
-        <div class="muted">Outdoor tiles (grass, street, water) never get a ceiling.</div>
+        <div class="muted">Grass, paving &amp; water are textured; grass grows 3D blades.</div>
       </div>
       <div class="sect" id="propSect">
         <h3>Properties</h3>
@@ -188,6 +188,19 @@
         <h3>3D &amp; reference</h3>
         <label class="row" style="cursor:pointer"><input type="checkbox" id="ceilToggle"> Show ceilings in 3D</label>
         <label class="row" style="cursor:pointer"><input type="checkbox" id="refToggle" checked> Show floor above / below</label>
+      </div>
+      <div class="sect">
+        <h3>Roof</h3>
+        <select id="roofSel" style="width:100%">
+          <option value="none">No roof</option>
+          <option value="flat">Flat slab</option>
+          <option value="gable">Gable / cabin (pitched)</option>
+          <option value="hip">Hip</option>
+          <option value="shed">Shed · zinc (mono-slope)</option>
+        </select>
+        <div class="row" style="margin-top:8px"><span>Color</span><input type="color" id="roofColor" value="#8a9099"></div>
+        <div class="row"><span>Pitch</span><input type="range" id="roofPitch" min="0.3" max="3.5" step="0.1" value="1.4" style="flex:1"></div>
+        <div class="muted">Higher pitch = steeper, cabin / A-frame look.</div>
       </div>
       <div class="sect">
         <h3>Tips</h3>
@@ -214,6 +227,19 @@ const WALL_T = 0.12;       // wall thickness (m)
 const WALL_COLORS  = ["#e9e4da","#c9a36a","#d98c6a","#7fa7c9","#9bbf8a","#b59bd1","#d1d5db","#3b4252","#8a5a44","#2f4858","#e7c873","#cfd8dc","#a3b18a","#f1faee"];
 const FLOOR_COLORS = ["#caa472","#9c6b3f","#d7c7a8","#b9b9b9","#8d9b6a","#6d7b8d","#e0d2bd","#5b4636","#a0522d","#cdb891","#7d6b5d","#dfe3e6","#3e2f25","#f0e6d2"];
 const FURN_COLORS  = ["#6d8bb0","#c97f5a","#8aa05a","#b06a8f","#5a5f6b","#d2b48c","#3f4756","#e0c068","#7a5c45","#9aa7b5","#d96d6d","#2f9e7d","#222831","#f2f2f2"];
+const FLOOR_MATS = [
+  {id:"solid",   label:"Solid",   color:null,      outdoor:false},
+  {id:"wood",    label:"Wood",    color:"#a9743f", outdoor:false},
+  {id:"tile",    label:"Tile",    color:"#d8d2c4", outdoor:false},
+  {id:"marble",  label:"Marble",  color:"#e9e7e2", outdoor:false},
+  {id:"carpet",  label:"Carpet",  color:"#7d6f86", outdoor:false},
+  {id:"concrete",label:"Concrete",color:"#9b9b95", outdoor:false},
+  {id:"grass",   label:"Grass",   color:"#5b8f4e", outdoor:true},
+  {id:"paving",  label:"Paving",  color:"#9aa0a6", outdoor:true},
+  {id:"water",   label:"Water",   color:"#3f86c7", outdoor:true},
+];
+const texCache={};
+let floorMat="solid";
 
 const FURNITURE = {
   bed:    {label:"Bed",     icon:"🛏️", w:4, d:5, color:"#6d8bb0"},
@@ -374,6 +400,7 @@ function renderProps(){
         html+='<button class="propbtn danger" id="delBtn">Delete '+(n>1?"("+n+")":"segment")+'</button><div class="muted" style="margin-top:8px">Pick a swatch to recolor.</div>';
       } else {
         html+='<div style="margin:12px 0 6px"><b>'+(n>1?n+" floor tiles":"Floor tile")+'</b></div>';
+        html+='<div class="muted" style="margin-bottom:4px">Material</div><select id="floorMatSel" style="width:100%;margin-bottom:8px">'+FLOOR_MATS.map(m=>'<option value="'+m.id+'">'+m.label+'</option>').join("")+'</select>';
         html+='<div class="muted" style="margin-bottom:4px">Ceiling above '+(n>1?"these "+n+" tiles":"this tile")+':</div><div class="btnrow"><button class="propbtn" id="ceilOn">Ceiling on</button><button class="propbtn" id="ceilOff">Ceiling off</button></div>';
         html+='<button class="propbtn danger" id="delBtn" style="margin-top:6px">Delete '+(n>1?"("+n+")":"tile")+'</button><div class="muted" style="margin-top:8px">Pick a swatch to recolor.</div>';
       }
@@ -387,6 +414,7 @@ function renderProps(){
     propBody.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{ pushUndo(); const w=L().walls[sel.items[0]]; if(w)w.type=b.dataset.t; draw();build3D();save();renderProps(); });
     const con=document.getElementById("ceilOn"); if(con)con.onclick=()=>{ pushUndo(); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl)fl.ceil=true;}); build3D(); save(); };
     const cof=document.getElementById("ceilOff"); if(cof)cof.onclick=()=>{ pushUndo(); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl)fl.ceil=false;}); build3D(); save(); };
+    const fms=document.getElementById("floorMatSel"); if(fms){ const f0=L().floors[sel.items[0]]; fms.value=(f0&&f0.mat)||"solid"; fms.onchange=()=>{ pushUndo(); const mm=FLOOR_MATS.find(x=>x.id===fms.value); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl){ fl.mat=fms.value; if(mm&&mm.color)fl.color=mm.color; if(mm&&mm.outdoor)fl.ceil=false; }}); draw(); build3D(); save(); renderProps(); }; }
     return;
   }
   propBody.innerHTML='<div class="muted">Switch to the <b>Select</b> tool to recolor, retype or delete walls, floors and furniture \u2014 one at a time, or many at once by dragging a box.</div>';
@@ -646,7 +674,7 @@ function commitRoom(){
   const lv=L();
   for(let x=r.x0;x<r.x1;x++){ addWall(lv,"h",x,r.y0); addWall(lv,"h",x,r.y1); }
   for(let y=r.y0;y<r.y1;y++){ addWall(lv,"v",r.x0,y); addWall(lv,"v",r.x1,y); }
-  for(let x=r.x0;x<r.x1;x++)for(let y=r.y0;y<r.y1;y++) lv.floors[fkey(x,y)]={color:matFloor,ceil:true};
+  for(let x=r.x0;x<r.x1;x++)for(let y=r.y0;y<r.y1;y++) lv.floors[fkey(x,y)]={color:matFloor,ceil:true,mat:floorMat};
   save(); build3D();
 }
 function commitWalls(){ const lv=L(); (drag.edges||[]).forEach(e=>addWall(lv,e.o,e.x,e.y)); save(); build3D(); }
@@ -689,8 +717,8 @@ function commitFloorRect(){
   const r=normRect(drag.sx,drag.sy,mouse.fx,mouse.fy);
   let x0=Math.round(r.x0),y0=Math.round(r.y0),x1=Math.round(r.x1),y1=Math.round(r.y1);
   const lv=L();
-  if(x1<=x0||y1<=y0){ lv.floors[fkey(mouse.gx,mouse.gy)]={color:matFloor,ceil:!floorOutdoor}; }
-  else { for(let x=x0;x<x1;x++)for(let y=y0;y<y1;y++) lv.floors[fkey(x,y)]={color:matFloor,ceil:!floorOutdoor}; }
+  if(x1<=x0||y1<=y0){ lv.floors[fkey(mouse.gx,mouse.gy)]={color:matFloor,ceil:!floorOutdoor,mat:floorMat}; }
+  else { for(let x=x0;x<x1;x++)for(let y=y0;y<y1;y++) lv.floors[fkey(x,y)]={color:matFloor,ceil:!floorOutdoor,mat:floorMat}; }
   save(); build3D();
 }
 function doMeasureClick(){
@@ -838,9 +866,10 @@ document.getElementById("wallH").oninput=e=>{ project.wallH=+e.target.value; doc
 document.getElementById("ceilToggle").onchange=e=>{ project.ceiling=e.target.checked; save(); build3D(); };
 document.getElementById("refToggle").onchange=e=>{ showRef=e.target.checked; refreshLevels(); draw(); };
 document.getElementById("floorOutdoor").onchange=e=>{ floorOutdoor=e.target.checked; };
-document.getElementById("gGrass").onclick=()=>{ matFloor="#5b8f4e"; floorOutdoor=true; document.getElementById("floorOutdoor").checked=true; renderSwatches(); };
-document.getElementById("gStone").onclick=()=>{ matFloor="#9aa0a6"; floorOutdoor=true; document.getElementById("floorOutdoor").checked=true; renderSwatches(); };
-document.getElementById("gWater").onclick=()=>{ matFloor="#3f86c7"; floorOutdoor=true; document.getElementById("floorOutdoor").checked=true; renderSwatches(); };
+(function(){ const grid=document.getElementById("floorMatGrid"); FLOOR_MATS.forEach(m=>{ const el=document.createElement("div"); el.className="fitem"+(m.id===floorMat?" active":""); el.dataset.fm=m.id; el.innerHTML='<span>'+m.label+'</span>'; el.onclick=()=>{ floorMat=m.id; if(m.color)matFloor=m.color; floorOutdoor=m.outdoor; document.getElementById("floorOutdoor").checked=m.outdoor; document.querySelectorAll("[data-fm]").forEach(e2=>e2.classList.toggle("active",e2.dataset.fm===m.id)); renderSwatches(); }; grid.appendChild(el); }); })();
+document.getElementById("roofSel").onchange=e=>{ project.roof=e.target.value; save(); build3D(); };
+document.getElementById("roofColor").oninput=e=>{ project.roofColor=e.target.value; save(); build3DThrottled(); };
+document.getElementById("roofPitch").oninput=e=>{ project.roofPitch=+e.target.value; save(); build3DThrottled(); };
 document.getElementById("renderBtn").onclick=()=>{
   const w=1920,h=1080; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.render(scene,camera);
   const url=renderer.domElement.toDataURL("image/png"); const a=document.createElement("a");
@@ -906,6 +935,9 @@ function openProject(id){
   document.getElementById("projName").textContent=p.name;
   document.getElementById("wallH").value=project.wallH; document.getElementById("wallHv").textContent=project.wallH.toFixed(1)+"m";
   document.getElementById("ceilToggle").checked=!!project.ceiling;
+  document.getElementById("roofSel").value=project.roof||"none";
+  document.getElementById("roofColor").value=project.roofColor||"#8a9099";
+  document.getElementById("roofPitch").value=project.roofPitch||1.4;
   refreshLevels(); updatePanels(); updateHint();
   hideDash(); applyViewMode(); resize(); recenter(); draw(); build3D();
 }
@@ -1061,10 +1093,11 @@ function build3D(){
   disposeGroup();
   const H=project.wallH; let base=0;
   project.levels.forEach(lv=>{ buildLevel(lv,base,H); base+=H; });
+  buildRoof();
 }
 function buildLevel(lv,base,H){
-  for(const k in lv.floors){ const a=k.split("|"); const x=+a[0],y=+a[1];
-    const slab=box(CELL,0.06,CELL,lv.floors[k].color,{roughness:0.95}); slab.position.set((x+0.5)*CELL,base+0.03,(y+0.5)*CELL); roomGroup.add(slab); }
+  for(const k in lv.floors){ const a=k.split("|"); floorSlab(lv.floors[k],+a[0],+a[1],base); }
+  addGrassBlades(lv,base);
   if(project.ceiling){ for(const k in lv.floors){ if(lv.floors[k].ceil===false)continue; const a=k.split("|"); const x=+a[0],y=+a[1];
     const cl=box(CELL,0.06,CELL,"#ececed",{roughness:1}); cl.position.set((x+0.5)*CELL,base+H-0.03,(y+0.5)*CELL); roomGroup.add(cl); } }
   for(const k in lv.walls){ const a=k.split("|"); buildWall(a[0],+a[1],+a[2],lv.walls[k],base,H); }
@@ -1085,6 +1118,95 @@ function buildWall(o,x,y,w,base,H){
 }
 let _glass;
 function glassMat(){ if(!_glass)_glass=new THREE.MeshStandardMaterial({color:0x9fd4ff,transparent:true,opacity:0.32,roughness:0.1,metalness:0.1}); return _glass; }
+function floorTexture(matId,color){
+  const key=matId+"|"+color; if(texCache[key])return texCache[key];
+  const S=128, cv=document.createElement("canvas"); cv.width=cv.height=S; const c=cv.getContext("2d");
+  c.fillStyle=color||"#cccccc"; c.fillRect(0,0,S,S);
+  function spec(amt,n){ for(let i=0;i<n;i++){ const x=Math.random()*S,y=Math.random()*S,v=(Math.random()-0.5)*amt; c.fillStyle="rgba("+(v>0?255:0)+","+(v>0?255:0)+","+(v>0?255:0)+","+(Math.abs(v)/255).toFixed(3)+")"; c.fillRect(x,y,2,2);} }
+  if(matId==="wood"){ for(let y=0;y<S;y+=15){ c.strokeStyle="rgba(60,30,10,.22)"; c.lineWidth=1; c.beginPath();c.moveTo(0,y);c.lineTo(S,y);c.stroke(); } spec(55,1400); }
+  else if(matId==="tile"){ c.strokeStyle="rgba(0,0,0,.28)"; c.lineWidth=4; for(let p=0;p<=S;p+=S/2){ c.beginPath();c.moveTo(p,0);c.lineTo(p,S);c.stroke(); c.beginPath();c.moveTo(0,p);c.lineTo(S,p);c.stroke(); } }
+  else if(matId==="marble"){ spec(26,500); c.strokeStyle="rgba(120,120,130,.32)"; c.lineWidth=2; for(let i=0;i<5;i++){ let x=Math.random()*S; c.beginPath();c.moveTo(x,0); for(let y=0;y<S;y+=14){ x+=(Math.random()-0.5)*34; c.lineTo(x,y);} c.stroke(); } }
+  else if(matId==="carpet"){ spec(34,5000); }
+  else if(matId==="concrete"){ spec(20,1800); }
+  else if(matId==="grass"){ for(let i=0;i<2600;i++){ const x=Math.random()*S,y=Math.random()*S,g=110+Math.random()*90; c.strokeStyle="rgba("+Math.floor(g*0.42)+","+Math.floor(g)+","+Math.floor(g*0.42)+",.55)"; c.lineWidth=1; c.beginPath();c.moveTo(x,y);c.lineTo(x+(Math.random()-0.5)*3,y-3-Math.random()*3);c.stroke(); } }
+  else if(matId==="paving"){ c.strokeStyle="rgba(0,0,0,.32)"; c.lineWidth=2; let off=0; for(let y=0;y<S;y+=S/4){ for(let x=-off;x<S;x+=S/3){ c.strokeRect(x,y,S/3,S/4);} off=off?0:S/6; } spec(22,900); }
+  else if(matId==="water"){ c.strokeStyle="rgba(255,255,255,.28)"; c.lineWidth=2; for(let y=8;y<S;y+=18){ c.beginPath(); for(let x=0;x<=S;x+=8){ c.lineTo(x,y+Math.sin(x/9)*3);} c.stroke(); } }
+  const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.encoding=THREE.sRGBEncoding; texCache[key]=t; return t;
+}
+function floorMaterial(tile){
+  const matId=tile.mat||"solid", color=tile.color||"#cccccc";
+  if(matId==="solid"){ const k="fS|"+color; if(matCache[k])return matCache[k]; const m=new THREE.MeshStandardMaterial({color:new THREE.Color(color),roughness:0.95}); matCache[k]=m; return m; }
+  const k="fT|"+matId+"|"+color; if(matCache[k])return matCache[k];
+  const o={map:floorTexture(matId,color),roughness:0.9,metalness:0};
+  if(matId==="water"){ o.transparent=true; o.opacity=0.92; o.roughness=0.14; o.metalness=0.25; }
+  if(matId==="tile"||matId==="marble"){ o.roughness=0.45; }
+  const m=new THREE.MeshStandardMaterial(o); matCache[k]=m; return m;
+}
+function floorSlab(tile,x,y,base){
+  const slab=new THREE.Mesh(new THREE.BoxGeometry(CELL,0.06,CELL), floorMaterial(tile));
+  slab.castShadow=true; slab.receiveShadow=true; slab.position.set((x+0.5)*CELL,base+0.03,(y+0.5)*CELL); roomGroup.add(slab);
+}
+function addGrassBlades(lv,base){
+  const tiles=[]; for(const k in lv.floors){ if((lv.floors[k].mat)==="grass"){ const a=k.split("|"); tiles.push([+a[0],+a[1]]); } }
+  if(!tiles.length)return;
+  const perTile=5, total=Math.min(tiles.length*perTile,4000);
+  const geo=new THREE.ConeGeometry(0.02,0.18,4), mat=new THREE.MeshStandardMaterial({color:0x4f9a3f,roughness:0.9});
+  const inst=new THREE.InstancedMesh(geo,mat,total); inst.castShadow=true;
+  const dummy=new THREE.Object3D(); let idx=0;
+  for(let i=0;i<tiles.length&&idx<total;i++){ const tx=tiles[i][0],ty=tiles[i][1];
+    for(let b=0;b<perTile&&idx<total;b++){ const h=0.12+Math.random()*0.13;
+      dummy.position.set((tx+Math.random())*CELL, base+0.06+h/2, (ty+Math.random())*CELL);
+      dummy.rotation.set((Math.random()-0.5)*0.3, Math.random()*Math.PI, (Math.random()-0.5)*0.3);
+      dummy.scale.set(1,h/0.18,1); dummy.updateMatrix(); inst.setMatrixAt(idx++,dummy.matrix); } }
+  inst.count=idx; inst.instanceMatrix.needsUpdate=true; roomGroup.add(inst);
+}
+function buildRoof(){
+  const type=project.roof||"none"; if(type==="none")return;
+  const top=project.levels[project.levels.length-1];
+  let minx=1e9,minz=1e9,maxx=-1e9,maxz=-1e9,any=false;
+  for(const k in top.floors){ if(top.floors[k].ceil===false)continue; const a=k.split("|"); const x=+a[0],y=+a[1]; any=true; if(x<minx)minx=x; if(y<minz)minz=y; if(x+1>maxx)maxx=x+1; if(y+1>maxz)maxz=y+1; }
+  if(!any){ for(const k in top.floors){ const a=k.split("|"); const x=+a[0],y=+a[1]; any=true; if(x<minx)minx=x; if(y<minz)minz=y; if(x+1>maxx)maxx=x+1; if(y+1>maxz)maxz=y+1; } }
+  if(!any)return;
+  const x0=minx*CELL-0.3, x1=maxx*CELL+0.3, z0=minz*CELL-0.3, z1=maxz*CELL+0.3;
+  const eaveY=project.wallH*project.levels.length, W=x1-x0, D=z1-z0, cxm=(x0+x1)/2, czm=(z0+z1)/2;
+  const rise=project.roofPitch||1.4, ridgeY=eaveY+rise, col=project.roofColor||"#8a9099";
+  if(type==="flat"){ const slab=box(W,0.12,D,col); slab.position.set(cxm,eaveY+0.06,czm); roomGroup.add(slab); return; }
+  const V=[];
+  const tri=(a,b,c)=>{ V.push(a[0],a[1],a[2],b[0],b[1],b[2],c[0],c[1],c[2]); };
+  const quad=(a,b,c,d)=>{ tri(a,b,c); tri(a,c,d); };
+  if(type==="shed"){
+    quad([x0,eaveY,z0],[x1,eaveY,z0],[x1,ridgeY,z1],[x0,ridgeY,z1]);
+    tri([x0,eaveY,z0],[x0,ridgeY,z1],[x0,eaveY,z1]);
+    tri([x1,eaveY,z0],[x1,eaveY,z1],[x1,ridgeY,z1]);
+  } else if(type==="gable"){
+    if(W>=D){ const zc=czm;
+      quad([x0,eaveY,z0],[x1,eaveY,z0],[x1,ridgeY,zc],[x0,ridgeY,zc]);
+      quad([x1,eaveY,z1],[x0,eaveY,z1],[x0,ridgeY,zc],[x1,ridgeY,zc]);
+      tri([x0,eaveY,z0],[x0,ridgeY,zc],[x0,eaveY,z1]);
+      tri([x1,eaveY,z0],[x1,eaveY,z1],[x1,ridgeY,zc]);
+    } else { const xc=cxm;
+      quad([x0,eaveY,z0],[x0,eaveY,z1],[xc,ridgeY,z1],[xc,ridgeY,z0]);
+      quad([x1,eaveY,z1],[x1,eaveY,z0],[xc,ridgeY,z0],[xc,ridgeY,z1]);
+      tri([x0,eaveY,z0],[x1,eaveY,z0],[xc,ridgeY,z0]);
+      tri([x0,eaveY,z1],[xc,ridgeY,z1],[x1,eaveY,z1]);
+    }
+  } else if(type==="hip"){
+    if(W>=D){ const zc=czm, rx0=cxm-(W-D)/2, rx1=cxm+(W-D)/2;
+      quad([x0,eaveY,z0],[x1,eaveY,z0],[rx1,ridgeY,zc],[rx0,ridgeY,zc]);
+      quad([x1,eaveY,z1],[x0,eaveY,z1],[rx0,ridgeY,zc],[rx1,ridgeY,zc]);
+      tri([x0,eaveY,z0],[rx0,ridgeY,zc],[x0,eaveY,z1]);
+      tri([x1,eaveY,z0],[x1,eaveY,z1],[rx1,ridgeY,zc]);
+    } else { const xc=cxm, rz0=czm-(D-W)/2, rz1=czm+(D-W)/2;
+      quad([x0,eaveY,z0],[x0,eaveY,z1],[xc,ridgeY,rz1],[xc,ridgeY,rz0]);
+      quad([x1,eaveY,z1],[x1,eaveY,z0],[xc,ridgeY,rz0],[xc,ridgeY,rz1]);
+      tri([x0,eaveY,z0],[xc,ridgeY,rz0],[x1,eaveY,z0]);
+      tri([x0,eaveY,z1],[x1,eaveY,z1],[xc,ridgeY,rz1]);
+    }
+  }
+  if(V.length){ const g=new THREE.BufferGeometry(); g.setAttribute("position",new THREE.Float32BufferAttribute(V,3)); g.computeVertexNormals();
+    const m=new THREE.MeshStandardMaterial({color:new THREE.Color(col),roughness:0.5,metalness:0.3,side:THREE.DoubleSide});
+    const mesh=new THREE.Mesh(g,m); mesh.castShadow=true; mesh.receiveShadow=true; roomGroup.add(mesh); }
+}
 function buildFurniture(f,base){
   const meta=FURNITURE[f.type]; const w=meta.w*CELL, d=meta.d*CELL; const g=new THREE.Group();
   const C=f.color||meta.color; const dark=shade(C,-0.25), light=shade(C,0.12);
