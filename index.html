@@ -718,12 +718,12 @@ function pickWallFloor(){
   if(lv.floors[fk]){ sel={kind:"floor",items:[fk]}; renderProps(); renderSwatches(); return; }
   sel=null; renderProps(); renderSwatches();
 }
-function commitMarquee(){
-  const r=normRect(drag.sx,drag.sy,mouse.fx,mouse.fy); const lv=L(); const items=[];
-  if(selKind==="furniture"){
+function gatherInRect(kind,r){
+  const lv=L(); const items=[];
+  if(kind==="furniture"){
     lv.furniture.forEach(f=>{ const meta=FURNITURE[f.type]; let w=meta.w,d=meta.d; if(f.rot%2===1){const t=w;w=d;d=t;}
       if(!(f.x+w<=r.x0||f.x>=r.x1||f.y+d<=r.y0||f.y>=r.y1)) items.push(f.id); });
-  } else if(selKind==="floor"){
+  } else if(kind==="floor"){
     const x0=Math.round(r.x0),y0=Math.round(r.y0),x1=Math.round(r.x1),y1=Math.round(r.y1);
     for(const k in lv.floors){ const a=k.split("|"); const x=+a[0],y=+a[1]; if(x>=x0&&x<x1&&y>=y0&&y<y1) items.push(k); }
   } else {
@@ -731,7 +731,15 @@ function commitMarquee(){
     for(const k in lv.walls){ const a=k.split("|"); const o=a[0],x=+a[1],y=+a[2];
       if(o==="h"){ if(x>=x0&&x<x1&&y>=y0&&y<=y1) items.push(k); } else { if(x>=x0&&x<=x1&&y>=y0&&y<y1) items.push(k); } }
   }
-  sel = items.length?{kind:selKind,items}:null;
+  return items;
+}
+function commitMarquee(){
+  const r=normRect(drag.sx,drag.sy,mouse.fx,mouse.fy);
+  const order=[selKind].concat(["furniture","floor","wall"].filter(k=>k!==selKind));
+  let chosen=null, items=[];
+  for(const k of order){ const it=gatherInRect(k,r); if(it.length){ chosen=k; items=it; break; } }
+  sel = chosen?{kind:chosen,items}:null;
+  if(chosen) selKind=chosen;
   renderProps(); renderSwatches();
 }
 function eraseAt(){
