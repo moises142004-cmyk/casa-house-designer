@@ -106,6 +106,15 @@
   .newcard{align-items:center;justify-content:center;min-height:230px;color:var(--muted);border:1.5px dashed var(--line);font-size:14px;gap:6px}
   .newcard:hover{color:var(--accent2);border-color:var(--accent2)}
   .newcard .plus{font-size:34px;line-height:1}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:60;display:none;align-items:center;justify-content:center}
+  .modal.show{display:flex}
+  .modalbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:580px;max-width:92vw;max-height:86vh;overflow:auto}
+  .modalhead{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+  #estBody table{width:100%;border-collapse:collapse;font-size:13px}
+  #estBody td,#estBody th{padding:7px 16px;border-bottom:1px solid var(--line);text-align:left;color:var(--text)}
+  #estBody td.n,#estBody th.n{text-align:right}
+  #estBody tr.tot td{font-weight:700;border-top:2px solid var(--line);font-size:15px}
+  #estBody tr.sec td{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:1px;padding-top:14px}
 </style>
 </head>
 <body>
@@ -124,6 +133,12 @@
   <div class="dashgrid" id="dashGrid"></div>
 </div>
 
+<div id="estimate" class="modal"><div class="modalbox">
+  <div class="modalhead"><b>Cost &amp; materials estimate</b><div class="grow"></div><button class="tbtn" id="estCsv">⤓ CSV</button><button class="tbtn" id="estClose">Close</button></div>
+  <div id="estBody"></div>
+  <div class="muted" style="padding:10px 16px 16px">Rough ballpark from generic unit prices — not a real quote.</div>
+</div></div>
+
 <div id="app">
   <div id="topbar">
     <button class="tbtn" id="dashBtn" title="Back to projects">⌂ Projects</button>
@@ -134,6 +149,7 @@
       <button data-view="3d">3D</button>
     </div>
     <button class="tbtn primary" id="view3dBtn" title="Build the 3D model">⛶ View in 3D</button>
+    <button class="tbtn" id="walkBtn" title="Walk inside (first person)">🚶 Walk</button>
     <div class="lvl">
       <span class="muted" style="font-size:12px">Floor</span>
       <select id="levelSel"></select>
@@ -157,6 +173,7 @@
       <div id="c3dwrap">
         <canvas id="c3d"></canvas>
         <div class="badge" id="c3dhint">drag rotate · scroll zoom · right-drag pan</div>
+        <div class="badge" id="walkHint" style="display:none;top:auto;bottom:40px;left:12px;right:12px;text-align:center">Click to look · WASD move · Shift run · Esc to exit</div>
       </div>
     </div>
     <div id="right">
@@ -203,6 +220,21 @@
         <div class="muted">Higher pitch = steeper, cabin / A-frame look.</div>
       </div>
       <div class="sect">
+        <h3>Plan info</h3>
+        <label class="row" style="cursor:pointer"><input type="checkbox" id="dimsToggle"> Show room sizes &amp; areas</label>
+        <div class="row"><span>Units</span><select id="unitSel"><option value="m">Meters</option><option value="ft">Feet</option></select></div>
+        <div class="muted" id="totalArea">Total floor area: —</div>
+        <button class="propbtn" id="estBtn" style="margin-top:8px">💲 Cost &amp; materials estimate</button>
+      </div>
+      <div class="sect">
+        <h3>Sun study</h3>
+        <label class="row" style="cursor:pointer"><input type="checkbox" id="sunToggle"> Sun &amp; shadows by time of day</label>
+        <div class="row"><span style="width:46px">Month</span><input type="range" id="sunMonth" min="1" max="12" step="1" value="6" style="flex:1"><span id="sunMonthV" style="width:30px">Jun</span></div>
+        <div class="row"><span style="width:46px">Hour</span><input type="range" id="sunHour" min="5" max="20" step="0.5" value="13" style="flex:1"><span id="sunHourV" style="width:38px">13:00</span></div>
+        <div class="row"><span style="width:46px">Facing</span><input type="range" id="sunNorth" min="0" max="360" step="5" value="0" style="flex:1"><span id="sunNorthV" style="width:30px">0°</span></div>
+        <div class="row"><span style="width:46px">Latitude</span><input type="range" id="sunLat" min="-60" max="60" step="1" value="20" style="flex:1"><span id="sunLatV" style="width:30px">20°</span></div>
+      </div>
+      <div class="sect">
         <h3>Tips</h3>
         <div class="muted">
           <b>Room</b> drag a rectangle to make walls+floor.<br>
@@ -240,6 +272,9 @@ const FLOOR_MATS = [
 ];
 const texCache={};
 let floorMat="solid";
+let showDims=false; let unit="m";
+let sunStudy=false, sunHour=13, sunMonth=6, sunNorth=0, sunLat=20; let sunLight=null;
+let walkMode=false; const fp={x:4,z:4,yaw:0,pitch:0,keys:{}};
 
 const FURNITURE = {
   bed:    {label:"Bed",     icon:"🛏️", w:4, d:5, color:"#6d8bb0"},
@@ -458,7 +493,8 @@ function draw(){
   for(let gx=Math.ceil(x0/2)*2;gx<=x1;gx+=2){ const a=g2s(gx,y0),b=g2s(gx,y1); ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke(); }
   for(let gy=Math.ceil(y0/2)*2;gy<=y1;gy+=2){ const a=g2s(x0,gy),b=g2s(x1,gy); ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke(); }
 
-  drawWalls(L()); drawFurniture(L()); drawPreview(); drawSelection(); drawMeasure();
+  drawWalls(L()); drawFurniture(L()); drawPreview(); drawSelection(); drawMeasure(); if(showDims)drawDims();
+  const _ta=document.getElementById("totalArea"); if(_ta)_ta.textContent="Total floor area: "+fmtArea(planTotals());
 }
 function drawFloors(lv,alpha){
   ctx.globalAlpha=alpha;
@@ -495,7 +531,7 @@ function drawMeasure(){
   ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);ctx.stroke(); ctx.setLineDash([]);
   ctx.fillStyle="#37c98b"; [pa,pb].forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,4,0,7);ctx.fill();});
   const dx=(b.x-a.x)*CELL, dy=(b.y-a.y)*CELL, dist=Math.hypot(dx,dy);
-  label((pa.x+pb.x)/2,(pa.y+pb.y)/2-14, dist.toFixed(2)+" m  ("+Math.abs(dx).toFixed(1)+" × "+Math.abs(dy).toFixed(1)+")");
+  label((pa.x+pb.x)/2,(pa.y+pb.y)/2-14, fmtLen(dist)+"  ("+fmtLen(Math.abs(dx))+" × "+fmtLen(Math.abs(dy))+")");
 }
 function strokeSeg(a,b,t,col){ ctx.strokeStyle=col; ctx.lineWidth=t; ctx.lineCap="round"; ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke(); }
 function lerpSeg(a,b,f){ return {x:a.x+(b.x-a.x)*f, y:a.y+(b.y-a.y)*f}; }
@@ -589,6 +625,41 @@ function label(x,y,text){
   const w=ctx.measureText(text).width+12;
   ctx.fillStyle="rgba(0,0,0,.7)"; roundRect(x-w/2,y-11,w,22,6); ctx.fill();
   ctx.fillStyle="#fff"; ctx.fillText(text,x,y); ctx.textAlign="start"; ctx.textBaseline="alphabetic";
+}
+
+/* ---------- DIMENSIONS / AREAS ---------- */
+function uLen(m){ return unit==="ft"? m*3.28084 : m; }
+function uLab(){ return unit==="ft"?"ft":"m"; }
+function fmtLen(m){ return uLen(m).toFixed(unit==="ft"?1:2)+" "+uLab(); }
+function fmtArea(m2){ return (unit==="ft"? m2*10.7639 : m2).toFixed(0)+" "+(unit==="ft"?"ft\u00b2":"m\u00b2"); }
+function planTotals(){ let c=0; for(const k in L().floors)c++; return c*CELL*CELL; }
+function detectRooms(lv){
+  const seen=new Set(), rooms=[];
+  const blocked=(x,y,nx,ny)=>{ if(nx===x+1)return !!lv.walls["v|"+(x+1)+"|"+y]; if(nx===x-1)return !!lv.walls["v|"+x+"|"+y]; if(ny===y+1)return !!lv.walls["h|"+x+"|"+(y+1)]; return !!lv.walls["h|"+x+"|"+y]; };
+  for(const k in lv.floors){ if(seen.has(k))continue; const q=[k]; seen.add(k); const comp=[];
+    while(q.length){ const c=q.pop(); const a=c.split("|"); const x=+a[0],y=+a[1]; comp.push([x,y]);
+      [[x+1,y],[x-1,y],[x,y+1],[x,y-1]].forEach(nb=>{ const nk=nb[0]+"|"+nb[1]; if(lv.floors[nk]&&!seen.has(nk)&&!blocked(x,y,nb[0],nb[1])){ seen.add(nk); q.push(nk); } }); }
+    rooms.push(comp); }
+  return rooms;
+}
+function drawDims(){
+  const lv=L(); const rooms=detectRooms(lv);
+  ctx.save();
+  rooms.forEach(comp=>{
+    if(comp.length<1)return;
+    let sx=0,sy=0,minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+    comp.forEach(c=>{ sx+=c[0]+0.5; sy+=c[1]+0.5; minx=Math.min(minx,c[0]);miny=Math.min(miny,c[1]);maxx=Math.max(maxx,c[0]+1);maxy=Math.max(maxy,c[1]+1); });
+    const cx=sx/comp.length, cy=sy/comp.length; const p=g2s(cx,cy);
+    const area=comp.length*CELL*CELL; const w=(maxx-minx)*CELL, h=(maxy-miny)*CELL;
+    ctx.font="bold 12px Inter,system-ui"; ctx.textAlign="center"; ctx.textBaseline="middle";
+    const t1=fmtArea(area), t2=fmtLen(w)+" \u00d7 "+fmtLen(h);
+    const wpx=Math.max(ctx.measureText(t1).width,ctx.measureText(t2).width)+12;
+    ctx.fillStyle="rgba(20,28,40,.78)"; roundRect(p.x-wpx/2,p.y-17,wpx,34,6); ctx.fill();
+    ctx.fillStyle="#fff"; ctx.fillText(t1,p.x,p.y-6);
+    ctx.fillStyle="#8fb4ff"; ctx.font="11px Inter,system-ui"; ctx.fillText(t2,p.x,p.y+8);
+  });
+  ctx.textAlign="start"; ctx.textBaseline="alphabetic";
+  ctx.restore();
 }
 
 /* ---------- TOOL GEOMETRY ---------- */
@@ -793,6 +864,7 @@ window.addEventListener("keydown",e=>{
   const ae=document.activeElement, tn=ae?ae.tagName:"";
   if(tn==="INPUT"||tn==="SELECT"||tn==="TEXTAREA") return;
   if(document.getElementById("dash").classList.contains("show")) return;
+  if(walkMode){ handleWalkKey(e,true); return; }
   if(e.code==="Space"){ spaceDown=true; }
   if(e.ctrlKey||e.metaKey){
     const k=e.key.toLowerCase();
@@ -819,8 +891,8 @@ window.addEventListener("keydown",e=>{
   const di="1234567890".indexOf(e.key);
   if(di>=0 && di<TOOLS.length) setTool(TOOLS[di].id);
 });
-window.addEventListener("keyup",e=>{ if(e.code==="Space")spaceDown=false; });
-function updateBadgeCoord(){ document.getElementById("hint2d").textContent="x "+(mouse.gx*CELL).toFixed(1)+"m · y "+(mouse.gy*CELL).toFixed(1)+"m"; }
+window.addEventListener("keyup",e=>{ if(e.code==="Space")spaceDown=false; if(walkMode)handleWalkKey(e,false); });
+function updateBadgeCoord(){ document.getElementById("hint2d").textContent="x "+fmtLen(mouse.gx*CELL)+" · y "+fmtLen(mouse.gy*CELL); }
 function updateHint(){
   const m={select:"Click a wall, floor or furniture to recolor / edit / delete.",room:"Drag a rectangle → walls + floor.",
     wall:"Drag to draw connected walls (L-shaped).",door:"Click a wall, or drag along it to widen the door.",
@@ -870,6 +942,66 @@ document.getElementById("floorOutdoor").onchange=e=>{ floorOutdoor=e.target.chec
 document.getElementById("roofSel").onchange=e=>{ project.roof=e.target.value; save(); build3D(); };
 document.getElementById("roofColor").oninput=e=>{ project.roofColor=e.target.value; save(); build3DThrottled(); };
 document.getElementById("roofPitch").oninput=e=>{ project.roofPitch=+e.target.value; save(); build3DThrottled(); };
+document.getElementById("dimsToggle").onchange=e=>{ showDims=e.target.checked; draw(); };
+document.getElementById("unitSel").onchange=e=>{ unit=e.target.value; draw(); };
+document.getElementById("walkBtn").onclick=()=>{ if(walkMode)exitWalk(); else enterWalk(); };
+c3d.addEventListener("click",()=>{ if(walkMode && document.pointerLockElement!==c3d) c3d.requestPointerLock(); });
+document.addEventListener("mousemove",e=>{ if(walkMode && document.pointerLockElement===c3d){ fp.yaw-=e.movementX*0.0026; fp.pitch=Math.max(-1.2,Math.min(1.2,fp.pitch - e.movementY*0.0026)); } });
+const PRICE={ wallPerM2:55, door:320, window:420,
+  floor:{solid:22,wood:55,tile:42,marble:120,carpet:30,concrete:18,grass:10,paving:32,water:180},
+  furn:{bed:650,sofa:780,chair:120,table:300,desk:260,tv:500,fridge:900,stove:650,sink:280,counter:340,toilet:240,bath:700,plant:40,rug:120,stairs:1200,tree:80,bush:25,car:0,pool:0,umbrella:90,fence:60,fountain:400,lamp:120,column:180,roundcol:180} };
+const MATLABEL={solid:"Plain floor",wood:"Wood floor",tile:"Tile floor",marble:"Marble floor",carpet:"Carpet",concrete:"Concrete",grass:"Grass",paving:"Paving",water:"Water / pool"};
+let lastEst=[];
+function computeEstimate(){
+  let wallEdges=0,doors=0,windows=0; const fmat={}; const furn={};
+  project.levels.forEach(lv=>{
+    for(const k in lv.walls){ const t=lv.walls[k].type; if(t==="door")doors++; else if(t==="window")windows++; else wallEdges++; }
+    for(const k in lv.floors){ const m=lv.floors[k].mat||"solid"; fmat[m]=(fmat[m]||0)+1; }
+    lv.furniture.forEach(ff=>{ furn[ff.type]=(furn[ff.type]||0)+1; });
+  });
+  const items=[]; const H=project.wallH;
+  const wallArea=wallEdges*CELL*H;
+  items.push({sec:"Structure"});
+  if(wallArea>0) items.push({label:"Walls",qty:wallArea.toFixed(0)+" m\u00b2",unit:PRICE.wallPerM2,cost:wallArea*PRICE.wallPerM2});
+  if(doors) items.push({label:"Doors",qty:doors+"",unit:PRICE.door,cost:doors*PRICE.door});
+  if(windows) items.push({label:"Windows",qty:windows+"",unit:PRICE.window,cost:windows*PRICE.window});
+  items.push({sec:"Flooring"});
+  Object.keys(fmat).forEach(m=>{ const area=fmat[m]*CELL*CELL; const p=PRICE.floor[m]||22;
+    items.push({label:(MATLABEL[m]||m),qty:area.toFixed(0)+" m\u00b2",unit:p,cost:area*p}); });
+  const fkeys=Object.keys(furn); if(fkeys.length){ items.push({sec:"Furniture & fixtures"});
+    fkeys.forEach(t=>{ const p=(PRICE.furn[t]!=null?PRICE.furn[t]:150); const lab=(FURNITURE[t]?FURNITURE[t].label:t);
+      items.push({label:lab,qty:furn[t]+" \u00d7",unit:p,cost:furn[t]*p}); }); }
+  const total=items.reduce((a,it)=>a+(it.cost||0),0);
+  items.push({tot:true,label:"Estimated total",cost:total});
+  return items;
+}
+function money(n){ return "$"+Math.round(n).toLocaleString(); }
+function openEstimate(){
+  lastEst=computeEstimate();
+  let rows="";
+  lastEst.forEach(it=>{
+    if(it.sec){ rows+='<tr class="sec"><td colspan="4">'+it.sec+'</td></tr>'; return; }
+    if(it.tot){ rows+='<tr class="tot"><td>'+it.label+'</td><td></td><td></td><td class="n">'+money(it.cost)+'</td></tr>'; return; }
+    rows+='<tr><td>'+it.label+'</td><td class="n">'+it.qty+'</td><td class="n">'+money(it.unit)+'</td><td class="n">'+money(it.cost)+'</td></tr>';
+  });
+  document.getElementById("estBody").innerHTML='<table><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Unit</th><th class="n">Cost</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  document.getElementById("estimate").classList.add("show");
+}
+document.getElementById("estBtn").onclick=openEstimate;
+document.getElementById("estClose").onclick=()=>document.getElementById("estimate").classList.remove("show");
+document.getElementById("estimate").addEventListener("click",e=>{ if(e.target.id==="estimate")e.target.classList.remove("show"); });
+document.getElementById("estCsv").onclick=()=>{
+  let csv="Item,Qty,Unit price,Cost\n";
+  lastEst.forEach(it=>{ if(it.sec||it.tot)return; csv+='"'+it.label+'",'+(it.qty||"").replace(/[^0-9.]/g,"")+","+it.unit+","+Math.round(it.cost)+"\n"; });
+  const tot=lastEst.find(x=>x.tot); if(tot)csv+='Estimated total,,,'+Math.round(tot.cost)+"\n";
+  const blob=new Blob([csv],{type:"text/csv"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="estimate.csv"; a.click(); URL.revokeObjectURL(a.href);
+};
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+document.getElementById("sunToggle").onchange=e=>{ sunStudy=e.target.checked; if(sunStudy){ if(viewMode==="2d"){viewMode="split";document.querySelectorAll("#viewseg button").forEach(x=>x.classList.toggle("active",x.dataset.view==="split"));applyViewMode();} updateSun(); } else resetSun(); };
+document.getElementById("sunMonth").oninput=e=>{ sunMonth=+e.target.value; document.getElementById("sunMonthV").textContent=MON[sunMonth-1]; if(sunStudy)updateSun(); };
+document.getElementById("sunHour").oninput=e=>{ sunHour=+e.target.value; const hh=Math.floor(sunHour), mm=(sunHour-hh)*60; document.getElementById("sunHourV").textContent=(hh<10?"0":"")+hh+":"+(mm?"30":"00"); if(sunStudy)updateSun(); };
+document.getElementById("sunNorth").oninput=e=>{ sunNorth=+e.target.value; document.getElementById("sunNorthV").textContent=sunNorth+"°"; if(sunStudy)updateSun(); };
+document.getElementById("sunLat").oninput=e=>{ sunLat=+e.target.value; document.getElementById("sunLatV").textContent=sunLat+"°"; if(sunStudy)updateSun(); };
 document.getElementById("renderBtn").onclick=()=>{
   const w=1920,h=1080; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); renderer.render(scene,camera);
   const url=renderer.domElement.toDataURL("image/png"); const a=document.createElement("a");
@@ -1037,7 +1169,7 @@ function init3D(){
   scene.fog=new THREE.Fog(0xc2d4e6,70,170);
   camera=new THREE.PerspectiveCamera(55,1,0.1,600);
   scene.add(new THREE.HemisphereLight(0xdfeefc,0x6a6a58,0.7));
-  const sun=new THREE.DirectionalLight(0xfff1d8,2.3); sun.position.set(26,40,16); sun.castShadow=true;
+  sunLight=new THREE.DirectionalLight(0xfff1d8,2.3); const sun=sunLight; sun.position.set(26,40,16); sun.castShadow=true;
   sun.shadow.mapSize.set(1024,1024); sun.shadow.camera.near=1; sun.shadow.camera.far=180;
   const sc=sun.shadow.camera; sc.left=-50;sc.right=50;sc.top=50;sc.bottom=-50; sun.shadow.bias=-0.0004; scene.add(sun);
   const fill=new THREE.DirectionalLight(0xbcd0ff,0.45); fill.position.set(-22,16,-14); scene.add(fill);
@@ -1054,7 +1186,46 @@ function skyTexture(){
   const g=c.createLinearGradient(0,0,0,256); g.addColorStop(0,"#6fa8e0"); g.addColorStop(0.55,"#bcd6ef"); g.addColorStop(1,"#e9f1f7");
   c.fillStyle=g; c.fillRect(0,0,8,256); const t=new THREE.CanvasTexture(cv); t.encoding=THREE.sRGBEncoding; return t;
 }
-function animate(){ requestAnimationFrame(animate); if(viewMode==="2d")return; orbit.update(); renderer.render(scene,camera); }
+function animate(){ requestAnimationFrame(animate); if(viewMode==="2d"&&!walkMode)return; if(sunStudy)updateSun(); if(walkMode)updateWalk(); else orbit.update(); renderer.render(scene,camera); }
+function updateWalk(){
+  const k=fp.keys, fx=Math.sin(fp.yaw), fz=Math.cos(fp.yaw), rx=Math.cos(fp.yaw), rz=-Math.sin(fp.yaw);
+  let mx=0,mz=0;
+  if(k.w){mx+=fx;mz+=fz;} if(k.s){mx-=fx;mz-=fz;} if(k.d){mx+=rx;mz+=rz;} if(k.a){mx-=rx;mz-=rz;}
+  const len=Math.hypot(mx,mz); if(len>0.001){ const v=0.06*(k.shift?2.2:1); fp.x+=mx/len*v; fp.z+=mz/len*v; }
+  const eyeY=curLevel*project.wallH+1.6; camera.position.set(fp.x,eyeY,fp.z);
+  const cp=Math.cos(fp.pitch);
+  camera.lookAt(fp.x+Math.sin(fp.yaw)*cp, eyeY+Math.sin(fp.pitch), fp.z+Math.cos(fp.yaw)*cp);
+}
+function handleWalkKey(e,down){
+  if(e.code==="Escape"&&down){ exitWalk(); return; }
+  const m={KeyW:"w",KeyA:"a",KeyS:"s",KeyD:"d",ArrowUp:"w",ArrowDown:"s",ArrowLeft:"a",ArrowRight:"d",ShiftLeft:"shift",ShiftRight:"shift"};
+  const key=m[e.code]; if(key){ fp.keys[key]=down; e.preventDefault(); }
+}
+function enterWalk(){
+  const lv=L(); let sx=0,sy=0,n=0; for(const kk in lv.floors){ const a=kk.split("|"); sx+=+a[0]+0.5; sy+=+a[1]+0.5; n++; }
+  fp.x=n?sx/n*CELL:4; fp.z=n?sy/n*CELL:4; fp.yaw=0; fp.pitch=0; fp.keys={};
+  walkMode=true;
+  viewMode="3d"; document.querySelectorAll("#viewseg button").forEach(x=>x.classList.toggle("active",x.dataset.view==="3d")); applyViewMode();
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  document.getElementById("walkHint").style.display="block";
+  document.getElementById("walkBtn").classList.add("primary");
+}
+function exitWalk(){ walkMode=false; if(document.pointerLockElement===c3d)document.exitPointerLock(); document.getElementById("walkHint").style.display="none"; document.getElementById("walkBtn").classList.remove("primary"); }
+function updateSun(){
+  if(!sunLight)return;
+  const N=Math.floor((sunMonth-1)*30.4)+15;
+  const decl=23.45*Math.sin(2*Math.PI/365*(284+N))*Math.PI/180;
+  const H=(sunHour-12)*15*Math.PI/180, lat=sunLat*Math.PI/180;
+  const sinEl=Math.sin(lat)*Math.sin(decl)+Math.cos(lat)*Math.cos(decl)*Math.cos(H);
+  const el=Math.asin(Math.max(-1,Math.min(1,sinEl)));
+  let az=Math.atan2(Math.sin(H), Math.cos(H)*Math.sin(lat)-Math.tan(decl)*Math.cos(lat));
+  az+=Math.PI + sunNorth*Math.PI/180;
+  const R=80, cosEl=Math.cos(el);
+  sunLight.position.set(R*cosEl*Math.sin(az), R*Math.max(0.03,Math.sin(el)), R*cosEl*Math.cos(az));
+  const e=Math.max(0,Math.sin(el)); sunLight.intensity=0.15+2.5*e;
+  const warm=1-e; sunLight.color.setRGB(1, 0.96-0.28*warm, 0.86-0.5*warm);
+}
+function resetSun(){ if(!sunLight)return; sunLight.position.set(26,40,16); sunLight.intensity=2.3; sunLight.color.setHex(0xfff1d8); }
 function makeOrbit(cam,dom){
   const o={target:new THREE.Vector3(),radius:26,polar:1.05,az:0.7};
   let dragging=false,pan=false,lx=0,ly=0;
