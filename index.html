@@ -4,7 +4,6 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Casa — House Designer</title>
-<meta name="casa-build" content="v5.1-roof-fix">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
 <style>
@@ -1161,52 +1160,77 @@ function addGrassBlades(lv,base){
       dummy.scale.set(1,h/0.18,1); dummy.updateMatrix(); inst.setMatrixAt(idx++,dummy.matrix); } }
   inst.count=idx; inst.instanceMatrix.needsUpdate=true; roomGroup.add(inst);
 }
+function pushTri(V,a,b,c){ V.push(a[0],a[1],a[2],b[0],b[1],b[2],c[0],c[1],c[2]); }
+function pushQuad(V,a,b,c,d){ pushTri(V,a,b,c); pushTri(V,a,c,d); }
+function buildRoofRect(type,x0,x1,z0,z1,eaveY,rise,V){
+  const ridgeY=eaveY+rise, W=x1-x0, D=z1-z0, cxm=(x0+x1)/2, czm=(z0+z1)/2;
+  if(type==="flat"){ pushQuad(V,[x0,eaveY,z0],[x1,eaveY,z0],[x1,eaveY,z1],[x0,eaveY,z1]); return; }
+  if(type==="shed"){
+    pushQuad(V,[x0,eaveY,z0],[x1,eaveY,z0],[x1,ridgeY,z1],[x0,ridgeY,z1]);
+    pushTri(V,[x0,eaveY,z0],[x0,ridgeY,z1],[x0,eaveY,z1]);
+    pushTri(V,[x1,eaveY,z0],[x1,eaveY,z1],[x1,ridgeY,z1]); return;
+  }
+  if(type==="gable"){
+    if(W>=D){ const zc=czm;
+      pushQuad(V,[x0,eaveY,z0],[x1,eaveY,z0],[x1,ridgeY,zc],[x0,ridgeY,zc]);
+      pushQuad(V,[x1,eaveY,z1],[x0,eaveY,z1],[x0,ridgeY,zc],[x1,ridgeY,zc]);
+      pushTri(V,[x0,eaveY,z0],[x0,ridgeY,zc],[x0,eaveY,z1]);
+      pushTri(V,[x1,eaveY,z0],[x1,eaveY,z1],[x1,ridgeY,zc]);
+    } else { const xc=cxm;
+      pushQuad(V,[x0,eaveY,z0],[x0,eaveY,z1],[xc,ridgeY,z1],[xc,ridgeY,z0]);
+      pushQuad(V,[x1,eaveY,z1],[x1,eaveY,z0],[xc,ridgeY,z0],[xc,ridgeY,z1]);
+      pushTri(V,[x0,eaveY,z0],[x1,eaveY,z0],[xc,ridgeY,z0]);
+      pushTri(V,[x0,eaveY,z1],[xc,ridgeY,z1],[x1,eaveY,z1]);
+    } return;
+  }
+  if(type==="hip"){
+    if(W>=D){ const zc=czm, rx0=cxm-(W-D)/2, rx1=cxm+(W-D)/2;
+      pushQuad(V,[x0,eaveY,z0],[x1,eaveY,z0],[rx1,ridgeY,zc],[rx0,ridgeY,zc]);
+      pushQuad(V,[x1,eaveY,z1],[x0,eaveY,z1],[rx0,ridgeY,zc],[rx1,ridgeY,zc]);
+      pushTri(V,[x0,eaveY,z0],[rx0,ridgeY,zc],[x0,eaveY,z1]);
+      pushTri(V,[x1,eaveY,z0],[x1,eaveY,z1],[rx1,ridgeY,zc]);
+    } else { const xc=cxm, rz0=czm-(D-W)/2, rz1=czm+(D-W)/2;
+      pushQuad(V,[x0,eaveY,z0],[x0,eaveY,z1],[xc,ridgeY,rz1],[xc,ridgeY,rz0]);
+      pushQuad(V,[x1,eaveY,z1],[x1,eaveY,z0],[xc,ridgeY,rz0],[xc,ridgeY,rz1]);
+      pushTri(V,[x0,eaveY,z0],[xc,ridgeY,rz0],[x1,eaveY,z0]);
+      pushTri(V,[x0,eaveY,z1],[x1,eaveY,z1],[xc,ridgeY,rz1]);
+    } return;
+  }
+}
+function rectCover(cellsSet){
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+  cellsSet.forEach(k=>{const a=k.split("|");const x=+a[0],y=+a[1];if(x<minx)minx=x;if(y<miny)miny=y;if(x>maxx)maxx=x;if(y>maxy)maxy=y;});
+  const used=new Set(), rects=[];
+  const has=(x,y)=>cellsSet.has(x+"|"+y)&&!used.has(x+"|"+y);
+  for(let y=miny;y<=maxy;y++) for(let x=minx;x<=maxx;x++){
+    if(!has(x,y))continue;
+    let w=1; while(has(x+w,y))w++;
+    let h=1,ok=true; while(ok){ for(let xx=x;xx<x+w;xx++){ if(!has(xx,y+h)){ok=false;break;} } if(ok)h++; }
+    for(let yy=y;yy<y+h;yy++)for(let xx=x;xx<x+w;xx++)used.add(xx+"|"+yy);
+    rects.push([x,y,x+w-1,y+h-1]);
+  }
+  return rects;
+}
 function buildRoof(){
   const type=project.roof||"none"; if(type==="none")return;
   let li=project.levels.length-1;
   while(li>0 && Object.keys(project.levels[li].walls).length===0 && Object.keys(project.levels[li].floors).length===0) li--;
   const top=project.levels[li];
-  let minx=1e9,minz=1e9,maxx=-1e9,maxz=-1e9,any=false;
-  const ext=(ax,ay,bx,by)=>{ any=true; if(ax<minx)minx=ax; if(ay<minz)minz=ay; if(bx>maxx)maxx=bx; if(by>maxz)maxz=by; };
-  for(const k in top.floors){ const a=k.split("|"); ext(+a[0],+a[1],+a[0]+1,+a[1]+1); }
-  for(const k in top.walls){ const a=k.split("|"); const o=a[0],x=+a[1],y=+a[2]; if(o==="h")ext(x,y,x+1,y); else ext(x,y,x,y+1); }
-  if(!any)return;
-  const x0=minx*CELL-0.3, x1=maxx*CELL+0.3, z0=minz*CELL-0.3, z1=maxz*CELL+0.3;
-  const eaveY=project.wallH*(li+1), W=x1-x0, D=z1-z0, cxm=(x0+x1)/2, czm=(z0+z1)/2;
-  const rise=project.roofPitch||1.4, ridgeY=eaveY+rise, col=project.roofColor||"#8a9099";
-  if(type==="flat"){ const slab=box(W,0.12,D,col); slab.position.set(cxm,eaveY+0.06,czm); roomGroup.add(slab); return; }
-  const V=[];
-  const tri=(a,b,c)=>{ V.push(a[0],a[1],a[2],b[0],b[1],b[2],c[0],c[1],c[2]); };
-  const quad=(a,b,c,d)=>{ tri(a,b,c); tri(a,c,d); };
-  if(type==="shed"){
-    quad([x0,eaveY,z0],[x1,eaveY,z0],[x1,ridgeY,z1],[x0,ridgeY,z1]);
-    tri([x0,eaveY,z0],[x0,ridgeY,z1],[x0,eaveY,z1]);
-    tri([x1,eaveY,z0],[x1,eaveY,z1],[x1,ridgeY,z1]);
-  } else if(type==="gable"){
-    if(W>=D){ const zc=czm;
-      quad([x0,eaveY,z0],[x1,eaveY,z0],[x1,ridgeY,zc],[x0,ridgeY,zc]);
-      quad([x1,eaveY,z1],[x0,eaveY,z1],[x0,ridgeY,zc],[x1,ridgeY,zc]);
-      tri([x0,eaveY,z0],[x0,ridgeY,zc],[x0,eaveY,z1]);
-      tri([x1,eaveY,z0],[x1,eaveY,z1],[x1,ridgeY,zc]);
-    } else { const xc=cxm;
-      quad([x0,eaveY,z0],[x0,eaveY,z1],[xc,ridgeY,z1],[xc,ridgeY,z0]);
-      quad([x1,eaveY,z1],[x1,eaveY,z0],[xc,ridgeY,z0],[xc,ridgeY,z1]);
-      tri([x0,eaveY,z0],[x1,eaveY,z0],[xc,ridgeY,z0]);
-      tri([x0,eaveY,z1],[xc,ridgeY,z1],[x1,eaveY,z1]);
-    }
-  } else if(type==="hip"){
-    if(W>=D){ const zc=czm, rx0=cxm-(W-D)/2, rx1=cxm+(W-D)/2;
-      quad([x0,eaveY,z0],[x1,eaveY,z0],[rx1,ridgeY,zc],[rx0,ridgeY,zc]);
-      quad([x1,eaveY,z1],[x0,eaveY,z1],[rx0,ridgeY,zc],[rx1,ridgeY,zc]);
-      tri([x0,eaveY,z0],[rx0,ridgeY,zc],[x0,eaveY,z1]);
-      tri([x1,eaveY,z0],[x1,eaveY,z1],[rx1,ridgeY,zc]);
-    } else { const xc=cxm, rz0=czm-(D-W)/2, rz1=czm+(D-W)/2;
-      quad([x0,eaveY,z0],[x0,eaveY,z1],[xc,ridgeY,rz1],[xc,ridgeY,rz0]);
-      quad([x1,eaveY,z1],[x1,eaveY,z0],[xc,ridgeY,rz0],[xc,ridgeY,rz1]);
-      tri([x0,eaveY,z0],[xc,ridgeY,rz0],[x1,eaveY,z0]);
-      tri([x0,eaveY,z1],[x1,eaveY,z1],[xc,ridgeY,rz1]);
-    }
+  let cells=new Set();
+  for(const k in top.floors){ if(top.floors[k].ceil!==false) cells.add(k); }
+  if(cells.size===0){ for(const k in top.floors) cells.add(k); }
+  let rects;
+  if(cells.size>0){ rects=rectCover(cells); }
+  else {
+    let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9,any=false;
+    for(const k in top.walls){ const a=k.split("|"); const o=a[0],x=+a[1],y=+a[2]; any=true;
+      if(x<minx)minx=x; if(y<miny)miny=y; const ex=o==="h"?x+1:x, ey=o==="v"?y+1:y; if(ex>maxx)maxx=ex; if(ey>maxy)maxy=ey; }
+    if(!any)return; rects=[[minx,miny,maxx-1,maxy-1]];
   }
+  const eaveY=project.wallH*(li+1), rise=project.roofPitch||1.4, col=project.roofColor||"#8a9099", ov=0.25;
+  const V=[];
+  rects.forEach(rc=>{ const x0=rc[0]*CELL-ov, x1=(rc[2]+1)*CELL+ov, z0=rc[1]*CELL-ov, z1=(rc[3]+1)*CELL+ov;
+    buildRoofRect(type,x0,x1,z0,z1,eaveY,rise,V); });
   if(V.length){ const g=new THREE.BufferGeometry(); g.setAttribute("position",new THREE.Float32BufferAttribute(V,3)); g.computeVertexNormals();
     const m=new THREE.MeshStandardMaterial({color:new THREE.Color(col),roughness:0.5,metalness:0.3,side:THREE.DoubleSide});
     const mesh=new THREE.Mesh(g,m); mesh.castShadow=true; mesh.receiveShadow=true; roomGroup.add(mesh); }
