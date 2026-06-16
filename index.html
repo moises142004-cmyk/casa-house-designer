@@ -6,6 +6,8 @@
 <title>Casa — House Designer</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/GLTFExporter.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
 <style>
   :root{
     --bg:#0f1115; --panel:#161a21; --panel2:#1d222b; --line:#2a313c;
@@ -33,7 +35,7 @@
   .pname-top:hover{border-color:var(--line);color:var(--text)}
   .grow{flex:1}
   .lvl{display:flex;align-items:center;gap:6px}
-  select,input[type=text]{background:var(--panel2);border:1px solid var(--line);color:var(--text);
+  select,input[type=text],input[type=number]{background:var(--panel2);border:1px solid var(--line);color:var(--text);
     border-radius:7px;padding:6px 8px;font-size:13px}
 
   #main{flex:1;display:flex;min-height:0}
@@ -127,6 +129,7 @@
   <div class="dashhead">
     <div class="brand">Casa<span>·</span>Designer</div>
     <div class="grow"></div>
+    <button class="tbtn" id="scanBtn">📷 Scan → plan</button>
     <button class="tbtn" id="dashImport">⤓ Import .json</button>
     <input type="file" id="fileInput" accept=".json,application/json" style="display:none" />
   </div>
@@ -145,6 +148,23 @@
 <div id="checkmodal" class="modal"><div class="modalbox">
   <div class="modalhead"><b>Livability &amp; code check</b><div class="grow"></div><button class="tbtn" id="checkClose">Close</button></div>
   <div id="checkBody" style="padding:4px 0 8px"></div>
+</div></div>
+
+<div id="scanmodal" class="modal"><div class="modalbox" style="width:520px">
+  <div class="modalhead"><b>Scan → floor plan</b><div class="grow"></div><button class="tbtn" id="scanClose">Close</button></div>
+  <div style="padding:16px">
+    <div class="muted" style="margin-bottom:10px">Scan your room with a free LiDAR app (<b>Scaniverse</b> or <b>3D Scanner App</b>), export <b>.glb</b> or <b>.obj</b>, then load it here.</div>
+    <input type="file" id="scanFile" accept=".glb,.gltf,.obj" />
+    <div id="scanStatus" class="muted" style="margin:10px 0">No file loaded.</div>
+    <div class="row"><span style="width:92px">Up axis</span><select id="scanUp"><option value="1">Y (default)</option><option value="2">Z</option></select></div>
+    <div class="row"><span style="width:92px">Cut height</span><input type="range" id="scanH" min="0.3" max="2.2" step="0.1" value="1.1" style="flex:1"><span id="scanHv" style="width:46px">1.1 m</span></div>
+    <div class="row"><span style="width:92px">Scale &times;</span><input type="number" id="scanScale" value="1" step="0.01" style="width:80px"></div>
+    <div class="row"><span style="width:92px">Detail</span><input type="range" id="scanDetail" min="1" max="5" step="1" value="2" style="flex:1"></div>
+    <label class="row" style="cursor:pointer"><input type="checkbox" id="scanRotate" checked> Auto-straighten (align walls to grid)</label>
+    <label class="row" style="cursor:pointer"><input type="checkbox" id="scanFloors"> Fill enclosed floors (needs closed walls)</label>
+    <button class="propbtn" id="scanGen" style="margin-top:10px">Generate plan &rarr;</button>
+    <div class="muted" style="margin-top:8px">Walls import best. Add doors/windows after, and re-generate with a different cut height if walls look broken.</div>
+  </div>
 </div></div>
 
 <div id="app">
@@ -1058,6 +1078,84 @@ function openCheck(){
 document.getElementById("checkBtn").onclick=openCheck;
 document.getElementById("checkClose").onclick=()=>document.getElementById("checkmodal").classList.remove("show");
 document.getElementById("checkmodal").addEventListener("click",e=>{ if(e.target.id==="checkmodal")e.target.classList.remove("show"); });
+let scanTris=null, scanBBox=null;
+function gatherTriangles(root){
+  const tris=[]; root.updateMatrixWorld(true);
+  const vA=new THREE.Vector3(),vB=new THREE.Vector3(),vC=new THREE.Vector3();
+  root.traverse(o=>{ if(!o.isMesh||!o.geometry||!o.geometry.attributes.position)return; const pos=o.geometry.attributes.position, idx=o.geometry.index, m=o.matrixWorld;
+    const tri=(ia,ib,ic)=>{ vA.fromBufferAttribute(pos,ia).applyMatrix4(m); vB.fromBufferAttribute(pos,ib).applyMatrix4(m); vC.fromBufferAttribute(pos,ic).applyMatrix4(m); tris.push([vA.x,vA.y,vA.z,vB.x,vB.y,vB.z,vC.x,vC.y,vC.z]); };
+    if(idx){ for(let i=0;i<idx.count;i+=3)tri(idx.getX(i),idx.getX(i+1),idx.getX(i+2)); } else { for(let i=0;i<pos.count;i+=3)tri(i,i+1,i+2); } });
+  return tris;
+}
+function onScanLoaded(root){
+  scanTris=gatherTriangles(root);
+  let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+  for(let i=0;i<scanTris.length;i++){ const T=scanTris[i]; for(let k=0;k<9;k++){ const ax=k%3,v=T[k]; if(v<mn[ax])mn[ax]=v; if(v>mx[ax])mx[ax]=v; } }
+  scanBBox={mn,mx};
+  document.getElementById("scanStatus").innerHTML="Loaded <b>"+scanTris.length.toLocaleString()+"</b> triangles \u00b7 "+(mx[0]-mn[0]).toFixed(1)+" \u00d7 "+(mx[2]-mn[2]).toFixed(1)+" m, height "+(mx[1]-mn[1]).toFixed(1)+" m";
+}
+function loadScanFile(file){
+  const ext=file.name.toLowerCase().split(".").pop(); const reader=new FileReader();
+  document.getElementById("scanStatus").textContent="Reading…";
+  reader.onload=()=>{ try{
+    if(ext==="obj"){ if(typeof THREE.OBJLoader==="undefined"){alert("OBJ loader not available.");return;} onScanLoaded(new THREE.OBJLoader().parse(reader.result)); }
+    else { if(typeof THREE.GLTFLoader==="undefined"){alert("glTF loader not available.");return;} new THREE.GLTFLoader().parse(reader.result,"",g=>onScanLoaded(g.scene),()=>alert("Could not read this .glb (it may be Draco-compressed — export an .obj or uncompressed .glb instead).")); }
+  }catch(e){ alert("Could not read that file: "+e.message); } };
+  if(ext==="obj")reader.readAsText(file); else reader.readAsArrayBuffer(file);
+}
+function sliceTris(tris,upIdx,planeVal){
+  const segs=[]; const A=upIdx===1?[0,2]:[0,1];
+  for(let t=0;t<tris.length;t++){ const T=tris[t]; const v=[[T[0],T[1],T[2]],[T[3],T[4],T[5]],[T[6],T[7],T[8]]];
+    const d=[v[0][upIdx]-planeVal,v[1][upIdx]-planeVal,v[2][upIdx]-planeVal]; const pts=[];
+    for(let e=0;e<3;e++){ const i=e,j=(e+1)%3; if((d[i]<0&&d[j]>=0)||(d[i]>=0&&d[j]<0)){ const tt=d[i]/(d[i]-d[j]); pts.push([ v[i][A[0]]+(v[j][A[0]]-v[i][A[0]])*tt, v[i][A[1]]+(v[j][A[1]]-v[i][A[1]])*tt ]); } }
+    if(pts.length===2) segs.push([pts[0][0],pts[0][1],pts[1][0],pts[1][1]]); }
+  return segs;
+}
+function dominantAngle(segs){ let sx=0,sy=0; segs.forEach(s=>{ const dx=s[2]-s[0],dy=s[3]-s[1],L=Math.hypot(dx,dy); if(L<0.05)return; const a=Math.atan2(dy,dx); sx+=Math.cos(4*a)*L; sy+=Math.sin(4*a)*L; }); return Math.atan2(sy,sx)/4; }
+function rotateSegs(segs,ang){ let cx=0,cy=0,n=0; segs.forEach(s=>{cx+=s[0]+s[2];cy+=s[1]+s[3];n+=2;}); cx/=n;cy/=n; const co=Math.cos(ang),si=Math.sin(ang);
+  const r=(x,y)=>[cx+(x-cx)*co-(y-cy)*si, cy+(x-cx)*si+(y-cy)*co];
+  return segs.map(s=>{ const a=r(s[0],s[1]),b=r(s[2],s[3]); return [a[0],a[1],b[0],b[1]]; }); }
+function rasterizeWalls(segs,scale,detail){
+  const pts=segs.map(s=>[s[0]*scale/CELL,s[1]*scale/CELL,s[2]*scale/CELL,s[3]*scale/CELL]);
+  let minx=1e9,miny=1e9; pts.forEach(p=>{ minx=Math.min(minx,p[0],p[2]); miny=Math.min(miny,p[1],p[3]); });
+  const ox=2-Math.floor(minx), oy=2-Math.floor(miny); const count={};
+  pts.forEach(p=>{ const x0=p[0]+ox,y0=p[1]+oy,x1=p[2]+ox,y1=p[3]+oy; const L=Math.hypot(x1-x0,y1-y0), n=Math.max(1,Math.ceil(L/0.2));
+    for(let i=0;i<=n;i++){ const t=i/n, px=x0+(x1-x0)*t, py=y0+(y1-y0)*t, fx=px-Math.round(px), fy=py-Math.round(py);
+      const key=Math.abs(fx)<Math.abs(fy) ? "v|"+Math.round(px)+"|"+Math.floor(py) : "h|"+Math.floor(px)+"|"+Math.round(py);
+      count[key]=(count[key]||0)+1; } });
+  const edges=[]; for(const k in count){ if(count[k]>=detail)edges.push(k); } return edges;
+}
+function floodFloors(lv){
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+  for(const k in lv.walls){ const a=k.split("|"); const x=+a[1],y=+a[2]; minx=Math.min(minx,x);miny=Math.min(miny,y);maxx=Math.max(maxx,x+1);maxy=Math.max(maxy,y+1); }
+  if(maxx<minx)return; const x0=minx-1,y0=miny-1,x1=maxx+1,y1=maxy+1; const ext=new Set(),q=[];
+  const wall=(o,x,y)=>!!lv.walls[o+"|"+x+"|"+y];
+  const push=(x,y)=>{ const k=x+"|"+y; if(x<x0||x>x1||y<y0||y>y1||ext.has(k))return; ext.add(k); q.push([x,y]); };
+  push(x0,y0);
+  while(q.length){ const c=q.pop(),x=c[0],y=c[1];
+    if(!wall("v",x+1,y))push(x+1,y); if(!wall("v",x,y))push(x-1,y); if(!wall("h",x,y+1))push(x,y+1); if(!wall("h",x,y))push(x,y-1); }
+  for(let x=minx;x<maxx;x++)for(let y=miny;y<maxy;y++){ if(!ext.has(x+"|"+y)) lv.floors[x+"|"+y]={color:FLOOR_COLORS[0],ceil:true,mat:"wood"}; }
+}
+function generateFromScan(){
+  if(!scanTris){ alert("Load a scan file first."); return; }
+  const up=+document.getElementById("scanUp").value, h=+document.getElementById("scanH").value, scale=+document.getElementById("scanScale").value||1, detail=+document.getElementById("scanDetail").value;
+  let segs=sliceTris(scanTris,up,scanBBox.mn[up]+h);
+  if(!segs.length){ alert("No walls found at that cut height — try a different height or up-axis."); return; }
+  if(document.getElementById("scanRotate").checked){ segs=rotateSegs(segs,-dominantAngle(segs)); }
+  const edges=rasterizeWalls(segs,scale,detail);
+  if(!edges.length){ alert("Couldn't extract walls — lower Detail or change height."); return; }
+  const data={levels:[newLevel("Floor 1")],wallH:2.7,ceiling:false,roof:"none",roofColor:"#8a9099",roofPitch:1.4};
+  edges.forEach(k=>{ data.levels[0].walls[k]={type:"wall",color:WALL_COLORS[0]}; });
+  if(document.getElementById("scanFloors").checked) floodFloors(data.levels[0]);
+  const id=uid(); projects.unshift({id,name:"Scan import",updated:Date.now(),data}); persistProjects();
+  document.getElementById("scanmodal").classList.remove("show"); openProject(id);
+}
+document.getElementById("scanBtn").onclick=()=>document.getElementById("scanmodal").classList.add("show");
+document.getElementById("scanClose").onclick=()=>document.getElementById("scanmodal").classList.remove("show");
+document.getElementById("scanmodal").addEventListener("click",e=>{ if(e.target.id==="scanmodal")e.target.classList.remove("show"); });
+document.getElementById("scanFile").onchange=e=>{ if(e.target.files[0])loadScanFile(e.target.files[0]); };
+document.getElementById("scanH").oninput=e=>{ document.getElementById("scanHv").textContent=(+e.target.value).toFixed(1)+" m"; };
+document.getElementById("scanGen").onclick=generateFromScan;
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 document.getElementById("sunToggle").onchange=e=>{ sunStudy=e.target.checked; if(sunStudy){ if(viewMode==="2d"){viewMode="split";document.querySelectorAll("#viewseg button").forEach(x=>x.classList.toggle("active",x.dataset.view==="split"));applyViewMode();} updateSun(); } else resetSun(); };
 document.getElementById("sunMonth").oninput=e=>{ sunMonth=+e.target.value; document.getElementById("sunMonthV").textContent=MON[sunMonth-1]; if(sunStudy)updateSun(); };
