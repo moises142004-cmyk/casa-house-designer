@@ -115,6 +115,9 @@
   #estBody td.n,#estBody th.n{text-align:right}
   #estBody tr.tot td{font-weight:700;border-top:2px solid var(--line);font-size:15px}
   #estBody tr.sec td{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:1px;padding-top:14px}
+  .issue{display:flex;gap:10px;align-items:flex-start;padding:10px 16px;border-bottom:1px solid var(--line);font-size:13px;color:var(--text)}
+  .issue .dot{width:10px;height:10px;border-radius:50%;margin-top:4px;flex:none}
+  .issue.high .dot{background:var(--danger)} .issue.med .dot{background:var(--warn)} .issue.info .dot{background:var(--muted)}
 </style>
 </head>
 <body>
@@ -137,6 +140,11 @@
   <div class="modalhead"><b>Cost &amp; materials estimate</b><div class="grow"></div><button class="tbtn" id="estCsv">⤓ CSV</button><button class="tbtn" id="estClose">Close</button></div>
   <div id="estBody"></div>
   <div class="muted" style="padding:10px 16px 16px">Rough ballpark from generic unit prices — not a real quote.</div>
+</div></div>
+
+<div id="checkmodal" class="modal"><div class="modalbox">
+  <div class="modalhead"><b>Livability &amp; code check</b><div class="grow"></div><button class="tbtn" id="checkClose">Close</button></div>
+  <div id="checkBody" style="padding:4px 0 8px"></div>
 </div></div>
 
 <div id="app">
@@ -225,6 +233,7 @@
         <div class="row"><span>Units</span><select id="unitSel"><option value="m">Meters</option><option value="ft">Feet</option></select></div>
         <div class="muted" id="totalArea">Total floor area: —</div>
         <button class="propbtn" id="estBtn" style="margin-top:8px">💲 Cost &amp; materials estimate</button>
+        <button class="propbtn" id="checkBtn" style="margin-top:6px">🔎 Livability check</button>
       </div>
       <div class="sect">
         <h3>Sun study</h3>
@@ -437,6 +446,7 @@ function renderProps(){
         html+='<div style="margin:12px 0 6px"><b>'+(n>1?n+" floor tiles":"Floor tile")+'</b></div>';
         html+='<div class="muted" style="margin-bottom:4px">Material</div><select id="floorMatSel" style="width:100%;margin-bottom:8px">'+FLOOR_MATS.map(m=>'<option value="'+m.id+'">'+m.label+'</option>').join("")+'</select>';
         html+='<div class="muted" style="margin-bottom:4px">Ceiling above '+(n>1?"these "+n+" tiles":"this tile")+':</div><div class="btnrow"><button class="propbtn" id="ceilOn">Ceiling on</button><button class="propbtn" id="ceilOff">Ceiling off</button></div>';
+        html+='<div class="muted" style="margin:10px 0 4px">Auto-furnish this room as</div><div class="fgrid" id="furnishGrid"></div>';
         html+='<button class="propbtn danger" id="delBtn" style="margin-top:6px">Delete '+(n>1?"("+n+")":"tile")+'</button><div class="muted" style="margin-top:8px">Pick a swatch to recolor.</div>';
       }
     } else {
@@ -450,6 +460,7 @@ function renderProps(){
     const con=document.getElementById("ceilOn"); if(con)con.onclick=()=>{ pushUndo(); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl)fl.ceil=true;}); build3D(); save(); };
     const cof=document.getElementById("ceilOff"); if(cof)cof.onclick=()=>{ pushUndo(); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl)fl.ceil=false;}); build3D(); save(); };
     const fms=document.getElementById("floorMatSel"); if(fms){ const f0=L().floors[sel.items[0]]; fms.value=(f0&&f0.mat)||"solid"; fms.onchange=()=>{ pushUndo(); const mm=FLOOR_MATS.find(x=>x.id===fms.value); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl){ fl.mat=fms.value; if(mm&&mm.color)fl.color=mm.color; if(mm&&mm.outdoor)fl.ceil=false; }}); draw(); build3D(); save(); renderProps(); }; }
+    const fg=document.getElementById("furnishGrid"); if(fg){ [["bedroom","🛏️ Bedroom"],["living","🛋️ Living"],["kitchen","🍳 Kitchen"],["bath","🛁 Bath"],["dining","🍽️ Dining"],["office","💻 Office"]].forEach(p=>{ const el=document.createElement("div"); el.className="fitem"; el.innerHTML='<span>'+p[1]+'</span>'; el.onclick=()=>furnishRoomSel(p[0]); fg.appendChild(el); }); }
     return;
   }
   propBody.innerHTML='<div class="muted">Switch to the <b>Select</b> tool to recolor, retype or delete walls, floors and furniture \u2014 one at a time, or many at once by dragging a box.</div>';
@@ -642,6 +653,26 @@ function detectRooms(lv){
     rooms.push(comp); }
   return rooms;
 }
+function roomBBox(cellKey){
+  const rooms=detectRooms(L());
+  for(const comp of rooms){ if(comp.some(c=>c[0]+"|"+c[1]===cellKey)){
+    let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; comp.forEach(c=>{x0=Math.min(x0,c[0]);y0=Math.min(y0,c[1]);x1=Math.max(x1,c[0]);y1=Math.max(y1,c[1]);});
+    return {x0,y0,x1,y1}; } }
+  return null;
+}
+function furnishRoom(type,b){
+  const lv=L();
+  const fits=(t,x,y,rot)=>{ const m=FURNITURE[t]; let w=m.w,d=m.d; if(rot%2===1){const tt=w;w=d;d=tt;} return x>=b.x0&&y>=b.y0&&x+w-1<=b.x1&&y+d-1<=b.y1; };
+  const put=(t,x,y,rot)=>{ if(fits(t,x,y,rot||0)) lv.furniture.push({id:nextId++,type:t,x:x,y:y,rot:rot||0,color:FURNITURE[t].color}); };
+  const w=b.x1-b.x0+1, h=b.y1-b.y0+1, cx=b.x0, cy=b.y0;
+  if(type==="bedroom"){ put("bed",cx+1,cy+1,0); put("desk",b.x1-4,cy+1,0); put("rug",cx+1,b.y1-4,0); put("plant",b.x1-1,b.y1-1,0); }
+  else if(type==="living"){ put("rug",cx+Math.max(1,Math.floor((w-5)/2)),cy+Math.max(1,Math.floor((h-4)/2)),0); put("sofa",cx+1,b.y1-2,0); put("tv",cx+1,cy,2); put("table",cx+Math.max(1,Math.floor((w-4)/2)),cy+Math.max(1,Math.floor((h-3)/2)),0); put("plant",b.x1-1,b.y1-1,0); }
+  else if(type==="kitchen"){ put("counter",cx+1,cy+1,0); put("stove",cx+5,cy+1,0); put("sink",cx+7,cy+1,0); put("fridge",cx+9,cy+1,0); put("table",cx+1,b.y1-3,0); }
+  else if(type==="bath"){ put("toilet",cx+1,cy+1,0); put("sink",cx+1,b.y1-2,0); put("bath",b.x1-4,cy+1,0); }
+  else if(type==="dining"){ const tx=cx+Math.max(1,Math.floor((w-4)/2)), ty=cy+Math.max(1,Math.floor((h-3)/2)); put("table",tx,ty,0); put("chair",tx-2,ty,0); put("chair",tx+4,ty,0); put("chair",tx+1,ty-2,0); put("chair",tx+1,ty+3,0); }
+  else if(type==="office"){ put("desk",cx+1,cy+1,0); put("chair",cx+2,cy+3,2); put("counter",b.x1-4,cy+1,0); put("plant",b.x1-1,b.y1-1,0); }
+}
+function furnishRoomSel(type){ if(!sel||!sel.items.length)return; const b=roomBBox(sel.items[0]); if(!b){ alert("Couldn't find an enclosed room here."); return; } pushUndo(); furnishRoom(type,b); build3D(); draw(); save(); }
 function drawDims(){
   const lv=L(); const rooms=detectRooms(lv);
   ctx.save();
@@ -996,6 +1027,37 @@ document.getElementById("estCsv").onclick=()=>{
   const tot=lastEst.find(x=>x.tot); if(tot)csv+='Estimated total,,,'+Math.round(tot.cost)+"\n";
   const blob=new Blob([csv],{type:"text/csv"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="estimate.csv"; a.click(); URL.revokeObjectURL(a.href);
 };
+function checkPlan(){
+  const lv=L(); const rooms=detectRooms(lv); const issues=[];
+  rooms.forEach(comp=>{
+    const rs=new Set(comp.map(c=>c[0]+"|"+c[1])); const area=comp.length*CELL*CELL;
+    let hasDoor=false,hasWindow=false,openPass=false;
+    comp.forEach(c=>{ const x=c[0],y=c[1];
+      const checks=[ {wk:"v|"+(x+1)+"|"+y,nb:(x+1)+"|"+y},{wk:"v|"+x+"|"+y,nb:(x-1)+"|"+y},{wk:"h|"+x+"|"+(y+1),nb:x+"|"+(y+1)},{wk:"h|"+x+"|"+y,nb:x+"|"+(y-1)} ];
+      checks.forEach(ch=>{ if(rs.has(ch.nb))return; const w=lv.walls[ch.wk];
+        if(w){ if(w.type==="door")hasDoor=true; else if(w.type==="window")hasWindow=true; } else { if(lv.floors[ch.nb])openPass=true; } }); });
+    const accessible=hasDoor||openPass;
+    if(area>=2 && !accessible) issues.push({sev:"high",msg:"A room ("+fmtArea(area)+") has no door or opening \u2014 no way in or out."});
+    if(area>=5 && !hasWindow && !openPass) issues.push({sev:"med",msg:"A room ("+fmtArea(area)+") has no window \u2014 poor daylight and no emergency egress."});
+    if(area>0 && area<1.4) issues.push({sev:"info",msg:"Very small enclosed space ("+fmtArea(area)+") \u2014 fine as a closet, tight as a room."});
+  });
+  const hd={},vd={};
+  for(const k in lv.walls){ if(lv.walls[k].type!=="door")continue; const a=k.split("|"); if(a[0]==="h"){(hd[a[2]]=hd[a[2]]||[]).push(+a[1]);} else {(vd[a[1]]=vd[a[1]]||[]).push(+a[2]);} }
+  const runs=(map)=>{ let nrw=0; for(const key in map){ const arr=map[key].sort((p,q)=>p-q); let i=0; while(i<arr.length){ let j=i; while(j+1<arr.length&&arr[j+1]===arr[j]+1)j++; if((j-i+1)*CELL<0.8)nrw++; i=j+1; } } return nrw; };
+  const nd=runs(hd)+runs(vd);
+  if(nd) issues.push({sev:"med",msg:nd+" door"+(nd>1?"s are":" is")+" only 0.5 m wide \u2014 tight for furniture and not wheelchair-accessible (aim \u22650.8 m)."});
+  return issues;
+}
+function openCheck(){
+  const issues=checkPlan(); let html="";
+  if(!issues.length){ html='<div class="issue"><span class="dot" style="background:var(--accent2)"></span><div><b>All clear.</b> No access, daylight, or door-width problems found on this floor.</div></div>'; }
+  else { const ord={high:0,med:1,info:2}; issues.sort((a,b)=>ord[a.sev]-ord[b.sev]);
+    issues.forEach(it=>{ html+='<div class="issue '+it.sev+'"><span class="dot"></span><div>'+it.msg+'</div></div>'; }); }
+  document.getElementById("checkBody").innerHTML=html; document.getElementById("checkmodal").classList.add("show");
+}
+document.getElementById("checkBtn").onclick=openCheck;
+document.getElementById("checkClose").onclick=()=>document.getElementById("checkmodal").classList.remove("show");
+document.getElementById("checkmodal").addEventListener("click",e=>{ if(e.target.id==="checkmodal")e.target.classList.remove("show"); });
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 document.getElementById("sunToggle").onchange=e=>{ sunStudy=e.target.checked; if(sunStudy){ if(viewMode==="2d"){viewMode="split";document.querySelectorAll("#viewseg button").forEach(x=>x.classList.toggle("active",x.dataset.view==="split"));applyViewMode();} updateSun(); } else resetSun(); };
 document.getElementById("sunMonth").oninput=e=>{ sunMonth=+e.target.value; document.getElementById("sunMonthV").textContent=MON[sunMonth-1]; if(sunStudy)updateSun(); };
@@ -1191,10 +1253,18 @@ function updateWalk(){
   const k=fp.keys, fx=Math.sin(fp.yaw), fz=Math.cos(fp.yaw), rx=Math.cos(fp.yaw), rz=-Math.sin(fp.yaw);
   let mx=0,mz=0;
   if(k.w){mx+=fx;mz+=fz;} if(k.s){mx-=fx;mz-=fz;} if(k.d){mx+=rx;mz+=rz;} if(k.a){mx-=rx;mz-=rz;}
-  const len=Math.hypot(mx,mz); if(len>0.001){ const v=0.06*(k.shift?2.2:1); fp.x+=mx/len*v; fp.z+=mz/len*v; }
+  const len=Math.hypot(mx,mz); if(len>0.001){ const v=0.06*(k.shift?2.2:1); const ndx=mx/len*v, ndz=mz/len*v;
+    if(!wallBlocked(fp.x+ndx,fp.z,"x")) fp.x+=ndx;
+    if(!wallBlocked(fp.x,fp.z+ndz,"z")) fp.z+=ndz; }
   const eyeY=curLevel*project.wallH+1.6; camera.position.set(fp.x,eyeY,fp.z);
   const cp=Math.cos(fp.pitch);
   camera.lookAt(fp.x+Math.sin(fp.yaw)*cp, eyeY+Math.sin(fp.pitch), fp.z+Math.cos(fp.yaw)*cp);
+}
+function wallBlocked(x,z,axis){
+  const lv=L(), r=0.2;
+  if(axis==="x"){ const col=Math.round(x/CELL), row=Math.floor(z/CELL); const w=lv.walls["v|"+col+"|"+row]; if(w&&w.type!=="door"&&Math.abs(x-col*CELL)<r)return true; }
+  else { const row=Math.round(z/CELL), col=Math.floor(x/CELL); const w=lv.walls["h|"+col+"|"+row]; if(w&&w.type!=="door"&&Math.abs(z-row*CELL)<r)return true; }
+  return false;
 }
 function handleWalkKey(e,down){
   if(e.code==="Escape"&&down){ exitWalk(); return; }
