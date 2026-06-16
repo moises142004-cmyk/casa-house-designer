@@ -220,6 +220,11 @@
         <label class="row" style="cursor:pointer;margin-top:8px"><input type="checkbox" id="floorOutdoor"> Outdoor tile (no ceiling)</label>
         <div class="muted">Grass, paving &amp; water are textured; grass grows 3D blades.</div>
       </div>
+      <div class="sect" id="wallSect" style="display:none">
+        <h3>Wall material</h3>
+        <div class="fgrid" id="wallMatGrid"></div>
+        <div class="muted">Applied to new walls you draw.</div>
+      </div>
       <div class="sect" id="propSect">
         <h3>Properties</h3>
         <div id="propBody" class="muted">Select an object with the <b>Select</b> tool to edit it.</div>
@@ -300,7 +305,7 @@ const FLOOR_MATS = [
   {id:"water",   label:"Water",   color:"#3f86c7", outdoor:true},
 ];
 const texCache={};
-let floorMat="solid";
+let floorMat="solid"; let wallMat="flat";
 let showDims=false; let unit="m";
 let sunStudy=false, sunHour=13, sunMonth=6, sunNorth=0, sunLat=20; let sunLight=null;
 let walkMode=false; const fp={x:4,z:4,yaw:0,pitch:0,keys:{}};
@@ -445,7 +450,7 @@ Object.keys(FURNITURE).forEach(key=>{
   el.onclick=()=>{ furnType=key; matFurn=f.color; document.querySelectorAll(".fitem").forEach(e=>e.classList.toggle("active",e.dataset.key===key)); renderSwatches(); };
   furnGrid.appendChild(el);
 });
-function updatePanels(){ furnSect.style.display=(tool==="furn")?"block":"none"; document.getElementById("floorSect").style.display=(tool==="floor")?"block":"none"; renderSwatches(); renderProps(); }
+function updatePanels(){ furnSect.style.display=(tool==="furn")?"block":"none"; document.getElementById("floorSect").style.display=(tool==="floor")?"block":"none"; document.getElementById("wallSect").style.display=(tool==="wall"||tool==="room")?"block":"none"; renderSwatches(); renderProps(); }
 
 const propBody=document.getElementById("propBody");
 function furnAt(id){ return L().furniture.find(f=>f.id===id); }
@@ -461,6 +466,7 @@ function renderProps(){
       } else if(sel.kind==="wall"){
         html+='<div style="margin:12px 0 6px"><b>'+(n>1?n+" wall segments":"Wall segment")+'</b></div>';
         if(n===1){ const w=lv.walls[sel.items[0]]; if(w) html+='<div class="btnrow"><button class="propbtn'+(w.type==="wall"?" active":"")+'" data-t="wall">Wall</button><button class="propbtn'+(w.type==="door"?" active":"")+'" data-t="door">Door</button><button class="propbtn'+(w.type==="window"?" active":"")+'" data-t="window">Window</button></div>'; }
+        html+='<div class="muted" style="margin:8px 0 4px">Material</div><select id="wallMatSel" style="width:100%;margin-bottom:6px"><option value="flat">Flat color</option><option value="brick">Brick</option><option value="plaster">Plaster</option><option value="concrete">Concrete</option><option value="wood">Wood</option><option value="stone">Stone</option></select>';
         html+='<button class="propbtn danger" id="delBtn">Delete '+(n>1?"("+n+")":"segment")+'</button><div class="muted" style="margin-top:8px">Pick a swatch to recolor.</div>';
       } else {
         html+='<div style="margin:12px 0 6px"><b>'+(n>1?n+" floor tiles":"Floor tile")+'</b></div>';
@@ -477,6 +483,7 @@ function renderProps(){
     const rb=document.getElementById("rotBtn"); if(rb)rb.onclick=()=>{ pushUndo(); sel.items.forEach(id=>{const f=furnAt(id);if(f)f.rot=(f.rot+1)%4;}); draw();build3D();save(); };
     const db=document.getElementById("delBtn"); if(db)db.onclick=()=>{ pushUndo(); deleteSelected(); };
     propBody.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{ pushUndo(); const w=L().walls[sel.items[0]]; if(w)w.type=b.dataset.t; draw();build3D();save();renderProps(); });
+    const wms=document.getElementById("wallMatSel"); if(wms){ const w0=L().walls[sel.items[0]]; wms.value=(w0&&w0.mat)||"flat"; wms.onchange=()=>{ pushUndo(); sel.items.forEach(k=>{const ww=L().walls[k]; if(ww)ww.mat=wms.value;}); draw(); build3D(); save(); }; }
     const con=document.getElementById("ceilOn"); if(con)con.onclick=()=>{ pushUndo(); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl)fl.ceil=true;}); build3D(); save(); };
     const cof=document.getElementById("ceilOff"); if(cof)cof.onclick=()=>{ pushUndo(); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl)fl.ceil=false;}); build3D(); save(); };
     const fms=document.getElementById("floorMatSel"); if(fms){ const f0=L().floors[sel.items[0]]; fms.value=(f0&&f0.mat)||"solid"; fms.onchange=()=>{ pushUndo(); const mm=FLOOR_MATS.find(x=>x.id===fms.value); sel.items.forEach(k=>{const fl=L().floors[k]; if(fl){ fl.mat=fms.value; if(mm&&mm.color)fl.color=mm.color; if(mm&&mm.outdoor)fl.ceil=false; }}); draw(); build3D(); save(); renderProps(); }; }
@@ -800,7 +807,7 @@ function commitRoom(){
   save(); build3D();
 }
 function commitWalls(){ const lv=L(); (drag.edges||[]).forEach(e=>addWall(lv,e.o,e.x,e.y)); save(); build3D(); }
-function addWall(lv,o,x,y){ const k=wkey(o,x,y); if(!lv.walls[k]) lv.walls[k]={type:"wall",color:matWall}; }
+function addWall(lv,o,x,y){ const k=wkey(o,x,y); if(!lv.walls[k]) lv.walls[k]={type:"wall",color:matWall,mat:wallMat}; }
 function paintFloor(x,y){ L().floors[fkey(x,y)]={color:matFloor}; }
 
 function startOpening(kind){
@@ -817,7 +824,7 @@ function commitOpening(){
   }
   for(let i=a;i<=b;i++){
     const k=o==="h"?wkey("h",i,line):wkey("v",line,i);
-    if(!lv.walls[k]) lv.walls[k]={type:"wall",color:matWall};
+    if(!lv.walls[k]) lv.walls[k]={type:"wall",color:matWall,mat:wallMat};
     lv.walls[k].type=drag.kind;
   }
   save(); build3D();
@@ -990,6 +997,7 @@ document.getElementById("ceilToggle").onchange=e=>{ project.ceiling=e.target.che
 document.getElementById("refToggle").onchange=e=>{ showRef=e.target.checked; refreshLevels(); draw(); };
 document.getElementById("floorOutdoor").onchange=e=>{ floorOutdoor=e.target.checked; };
 (function(){ const grid=document.getElementById("floorMatGrid"); FLOOR_MATS.forEach(m=>{ const el=document.createElement("div"); el.className="fitem"+(m.id===floorMat?" active":""); el.dataset.fm=m.id; el.innerHTML='<span>'+m.label+'</span>'; el.onclick=()=>{ floorMat=m.id; if(m.color)matFloor=m.color; floorOutdoor=m.outdoor; document.getElementById("floorOutdoor").checked=m.outdoor; document.querySelectorAll("[data-fm]").forEach(e2=>e2.classList.toggle("active",e2.dataset.fm===m.id)); renderSwatches(); }; grid.appendChild(el); }); })();
+(function(){ const grid=document.getElementById("wallMatGrid"); [["flat","Flat"],["brick","Brick"],["plaster","Plaster"],["concrete","Concrete"],["wood","Wood"],["stone","Stone"]].forEach(p=>{ const el=document.createElement("div"); el.className="fitem"+(p[0]===wallMat?" active":""); el.dataset.wm=p[0]; el.innerHTML='<span>'+p[1]+'</span>'; el.onclick=()=>{ wallMat=p[0]; document.querySelectorAll("[data-wm]").forEach(e2=>e2.classList.toggle("active",e2.dataset.wm===p[0])); }; grid.appendChild(el); }); })();
 document.getElementById("roofSel").onchange=e=>{ project.roof=e.target.value; save(); build3D(); };
 document.getElementById("roofColor").oninput=e=>{ project.roofColor=e.target.value; save(); build3DThrottled(); };
 document.getElementById("roofPitch").oninput=e=>{ project.roofPitch=+e.target.value; save(); build3DThrottled(); };
@@ -1445,11 +1453,14 @@ function buildLevel(lv,base,H){
 function buildWall(o,x,y,w,base,H){
   const len=CELL; const horiz=o==="h";
   const cx=horiz?(x+0.5)*CELL:x*CELL; const cz=horiz?y*CELL:(y+0.5)*CELL;
-  function seg(y0,h,color){ const g=horiz?box(len,h,WALL_T,color):box(WALL_T,h,len,color); g.position.set(cx,base+y0+h/2,cz); roomGroup.add(g); }
-  if(w.type==="wall"){ seg(0,H,w.color); }
-  else if(w.type==="door"){ const dh=Math.min(2.05,H-0.1); seg(dh,H-dh,w.color); }
+  const tex=w.mat&&w.mat!=="flat";
+  function seg(y0,h){ const geo=horiz?new THREE.BoxGeometry(len,h,WALL_T):new THREE.BoxGeometry(WALL_T,h,len);
+    if(tex) uvXform(geo,0.5,h,(horiz?x:y)*0.5,y0);
+    const g=new THREE.Mesh(geo,wallMaterial(w)); g.castShadow=true; g.receiveShadow=true; g.position.set(cx,base+y0+h/2,cz); roomGroup.add(g); }
+  if(w.type==="wall"){ seg(0,H); }
+  else if(w.type==="door"){ const dh=Math.min(2.05,H-0.1); seg(dh,H-dh); }
   else if(w.type==="window"){
-    const sill=0.9, top=Math.min(2.0,H-0.2); seg(0,sill,w.color); seg(top,H-top,w.color);
+    const sill=0.9, top=Math.min(2.0,H-0.2); seg(0,sill); seg(top,H-top);
     const gh=top-sill; const glass=horiz?new THREE.Mesh(new THREE.BoxGeometry(len*0.92,gh,0.03),glassMat())
       :new THREE.Mesh(new THREE.BoxGeometry(0.03,gh,len*0.92),glassMat());
     glass.position.set(cx,base+sill+gh/2,cz); roomGroup.add(glass);
@@ -1472,17 +1483,35 @@ function floorTexture(matId,color){
   else if(matId==="water"){ c.strokeStyle="rgba(255,255,255,.28)"; c.lineWidth=2; for(let y=8;y<S;y+=18){ c.beginPath(); for(let x=0;x<=S;x+=8){ c.lineTo(x,y+Math.sin(x/9)*3);} c.stroke(); } }
   const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.encoding=THREE.sRGBEncoding; texCache[key]=t; return t;
 }
+const FIMG={wood:"wood",tile:"tile",marble:"marble",concrete:"concrete",grass:"grass",paving:"paving"};
+const FNRM={wood:1,tile:1,paving:1};
+const WIMG={brick:"wbrick",plaster:"wplaster",concrete:"wconcrete",wood:"wwood",stone:"wstone"};
+const WNRM={brick:1,wood:1,stone:1};
+function getTex(url,srgb){ if(texCache[url])return texCache[url]; const t=new THREE.TextureLoader().load(url); t.wrapS=t.wrapT=THREE.RepeatWrapping; if(srgb)t.encoding=THREE.sRGBEncoding; texCache[url]=t; return t; }
+function uvXform(geo,su,sv,ou,ov){ const uv=geo.attributes.uv; if(!uv)return; for(let i=0;i<uv.count;i++) uv.setXY(i, uv.getX(i)*su+ou, uv.getY(i)*sv+ov); uv.needsUpdate=true; }
 function floorMaterial(tile){
   const matId=tile.mat||"solid", color=tile.color||"#cccccc";
   if(matId==="solid"){ const k="fS|"+color; if(matCache[k])return matCache[k]; const m=new THREE.MeshStandardMaterial({color:new THREE.Color(color),roughness:0.95}); matCache[k]=m; return m; }
+  if(FIMG[matId]){ const k="fI|"+matId; if(matCache[k])return matCache[k];
+    const o={map:getTex("textures/"+FIMG[matId]+".jpg",true),roughness:(matId==="tile"||matId==="marble")?0.5:0.85,metalness:0};
+    if(FNRM[matId]){ o.normalMap=getTex("textures/"+FIMG[matId]+"_n.jpg",false); o.normalScale=new THREE.Vector2(0.6,0.6); }
+    const m=new THREE.MeshStandardMaterial(o); matCache[k]=m; return m; }
   const k="fT|"+matId+"|"+color; if(matCache[k])return matCache[k];
   const o={map:floorTexture(matId,color),roughness:0.9,metalness:0};
   if(matId==="water"){ o.transparent=true; o.opacity=0.92; o.roughness=0.14; o.metalness=0.25; }
-  if(matId==="tile"||matId==="marble"){ o.roughness=0.45; }
   const m=new THREE.MeshStandardMaterial(o); matCache[k]=m; return m;
 }
+function wallMaterial(w){
+  const m=w.mat; if(!m||m==="flat"||!WIMG[m]) return mat(w.color,{roughness:0.9});
+  const k="wI|"+m; if(matCache[k])return matCache[k];
+  const o={map:getTex("textures/"+WIMG[m]+".jpg",true),roughness:0.92};
+  if(WNRM[m]){ o.normalMap=getTex("textures/"+WIMG[m]+"_n.jpg",false); o.normalScale=new THREE.Vector2(0.8,0.8); }
+  const mm=new THREE.MeshStandardMaterial(o); matCache[k]=mm; return mm;
+}
 function floorSlab(tile,x,y,base){
-  const slab=new THREE.Mesh(new THREE.BoxGeometry(CELL,0.06,CELL), floorMaterial(tile));
+  const geo=new THREE.BoxGeometry(CELL,0.06,CELL);
+  if((tile.mat||"solid")!=="solid") uvXform(geo,0.5,0.5,x*0.5,y*0.5);
+  const slab=new THREE.Mesh(geo, floorMaterial(tile));
   slab.castShadow=true; slab.receiveShadow=true; slab.position.set((x+0.5)*CELL,base+0.03,(y+0.5)*CELL); roomGroup.add(slab);
 }
 function addGrassBlades(lv,base){
