@@ -1093,7 +1093,7 @@ function build3D(){
   disposeGroup();
   const H=project.wallH; let base=0;
   project.levels.forEach(lv=>{ buildLevel(lv,base,H); base+=H; });
-  buildRoof();
+  try{ buildRoof(); }catch(err){ console.warn("roof build failed",err); }
 }
 function buildLevel(lv,base,H){
   for(const k in lv.floors){ const a=k.split("|"); floorSlab(lv.floors[k],+a[0],+a[1],base); }
@@ -1162,13 +1162,16 @@ function addGrassBlades(lv,base){
 }
 function buildRoof(){
   const type=project.roof||"none"; if(type==="none")return;
-  const top=project.levels[project.levels.length-1];
+  let li=project.levels.length-1;
+  while(li>0 && Object.keys(project.levels[li].walls).length===0 && Object.keys(project.levels[li].floors).length===0) li--;
+  const top=project.levels[li];
   let minx=1e9,minz=1e9,maxx=-1e9,maxz=-1e9,any=false;
-  for(const k in top.floors){ if(top.floors[k].ceil===false)continue; const a=k.split("|"); const x=+a[0],y=+a[1]; any=true; if(x<minx)minx=x; if(y<minz)minz=y; if(x+1>maxx)maxx=x+1; if(y+1>maxz)maxz=y+1; }
-  if(!any){ for(const k in top.floors){ const a=k.split("|"); const x=+a[0],y=+a[1]; any=true; if(x<minx)minx=x; if(y<minz)minz=y; if(x+1>maxx)maxx=x+1; if(y+1>maxz)maxz=y+1; } }
+  const ext=(ax,ay,bx,by)=>{ any=true; if(ax<minx)minx=ax; if(ay<minz)minz=ay; if(bx>maxx)maxx=bx; if(by>maxz)maxz=by; };
+  for(const k in top.floors){ const a=k.split("|"); ext(+a[0],+a[1],+a[0]+1,+a[1]+1); }
+  for(const k in top.walls){ const a=k.split("|"); const o=a[0],x=+a[1],y=+a[2]; if(o==="h")ext(x,y,x+1,y); else ext(x,y,x,y+1); }
   if(!any)return;
   const x0=minx*CELL-0.3, x1=maxx*CELL+0.3, z0=minz*CELL-0.3, z1=maxz*CELL+0.3;
-  const eaveY=project.wallH*project.levels.length, W=x1-x0, D=z1-z0, cxm=(x0+x1)/2, czm=(z0+z1)/2;
+  const eaveY=project.wallH*(li+1), W=x1-x0, D=z1-z0, cxm=(x0+x1)/2, czm=(z0+z1)/2;
   const rise=project.roofPitch||1.4, ridgeY=eaveY+rise, col=project.roofColor||"#8a9099";
   if(type==="flat"){ const slab=box(W,0.12,D,col); slab.position.set(cxm,eaveY+0.06,czm); roomGroup.add(slab); return; }
   const V=[];
