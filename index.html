@@ -955,8 +955,8 @@ function recenter(){
 let scene,camera,renderer,roomGroup,orbit;
 function init3D(){
   renderer=new THREE.WebGLRenderer({canvas:c3d,antialias:true,preserveDrawingBuffer:true});
-  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio));
-  renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  renderer.setPixelRatio(Math.min(1.6,window.devicePixelRatio));
+  renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap; renderer.shadowMap.autoUpdate=true;
   renderer.outputEncoding=THREE.sRGBEncoding;
   renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.05;
   scene=new THREE.Scene(); scene.background=skyTexture();
@@ -964,20 +964,23 @@ function init3D(){
   camera=new THREE.PerspectiveCamera(55,1,0.1,600);
   scene.add(new THREE.HemisphereLight(0xdfeefc,0x6a6a58,0.7));
   const sun=new THREE.DirectionalLight(0xfff1d8,2.3); sun.position.set(26,40,16); sun.castShadow=true;
-  sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.near=1; sun.shadow.camera.far=180;
+  sun.shadow.mapSize.set(1024,1024); sun.shadow.camera.near=1; sun.shadow.camera.far=180;
   const sc=sun.shadow.camera; sc.left=-50;sc.right=50;sc.top=50;sc.bottom=-50; sun.shadow.bias=-0.0004; scene.add(sun);
   const fill=new THREE.DirectionalLight(0xbcd0ff,0.45); fill.position.set(-22,16,-14); scene.add(fill);
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(800,800),new THREE.MeshStandardMaterial({color:0x6f8f5a,roughness:1}));
   ground.rotation.x=-Math.PI/2; ground.position.y=-0.02; ground.receiveShadow=true; scene.add(ground);
   roomGroup=new THREE.Group(); scene.add(roomGroup);
-  orbit=makeOrbit(camera,c3d); orbit.target.set(6,1.2,6); animate();
+  orbit=makeOrbit(camera,c3d); orbit.target.set(6,1.2,6);
+  c3d.addEventListener("webglcontextlost",e=>{ e.preventDefault(); },false);
+  c3d.addEventListener("webglcontextrestored",()=>{ build3D(); },false);
+  animate();
 }
 function skyTexture(){
   const cv=document.createElement("canvas"); cv.width=8; cv.height=256; const c=cv.getContext("2d");
   const g=c.createLinearGradient(0,0,0,256); g.addColorStop(0,"#6fa8e0"); g.addColorStop(0.55,"#bcd6ef"); g.addColorStop(1,"#e9f1f7");
   c.fillStyle=g; c.fillRect(0,0,8,256); const t=new THREE.CanvasTexture(cv); t.encoding=THREE.sRGBEncoding; return t;
 }
-function animate(){ requestAnimationFrame(animate); orbit.update(); renderer.render(scene,camera); }
+function animate(){ requestAnimationFrame(animate); if(viewMode==="2d")return; orbit.update(); renderer.render(scene,camera); }
 function makeOrbit(cam,dom){
   const o={target:new THREE.Vector3(),radius:26,polar:1.05,az:0.7};
   let dragging=false,pan=false,lx=0,ly=0;
@@ -1002,9 +1005,18 @@ function mat(color,opts){ const key=color+(opts?JSON.stringify(opts):""); if(mat
 function box(w,h,d,color,opts){ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat(color,opts)); m.castShadow=true; m.receiveShadow=true; return m; }
 let buildPending=false;
 function build3DThrottled(){ if(buildPending)return; buildPending=true; setTimeout(()=>{buildPending=false;build3D();},60); }
+function disposeGroup(){
+  roomGroup.traverse(o=>{
+    if(o.geometry) o.geometry.dispose();
+    if(o.material){ if(Array.isArray(o.material)) o.material.forEach(m=>m&&m.dispose()); else o.material.dispose(); }
+  });
+  while(roomGroup.children.length) roomGroup.remove(roomGroup.children[0]);
+  for(const k in matCache) delete matCache[k];
+  _glass=null;
+}
 function build3D(){
   if(!renderer)return;
-  while(roomGroup.children.length) roomGroup.remove(roomGroup.children[0]);
+  disposeGroup();
   const H=project.wallH; let base=0;
   project.levels.forEach(lv=>{ buildLevel(lv,base,H); base+=H; });
 }
